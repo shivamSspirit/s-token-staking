@@ -61,6 +61,18 @@ pub struct MintNFT<'info>
     pub system_program: Program<'info, System>,
 }
 ```
+Here, 
+`signer` - Is the Signer of the transaction
+`mint` - Is the mint of the NFT, we set decimals as 0 cause you cant own 0.5 NFts, and we add authority and freeze_authority as the signer
+`associated_token_account` - Is where the NFT will be store in the user's wallet
+`metadata_account` - Is the metaplex metadata account
+`master_edition_account` - Is the master edition account of the NFT
+`token_program` - Is the Token Program ID
+`rent` - Is the rent account
+`associated_token_program` - Is the Associated Token Program ID
+`token_metadata_program` - Is the Token Metadata Program ID
+`system_program` - Is the System Program ID
+
 ```
 pub fn mint_nft(ctx: Context<MintNFT>, name: String, symbol: String, uri: String) -> Result<()> 
     {
