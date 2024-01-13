@@ -61,7 +61,7 @@ pub struct MintNFT<'info>
     pub system_program: Program<'info, System>,
 }
 ```
-Here, 
+Here, <br>
 `signer` - Is the Signer of the transaction <br>
 `mint` - Is the mint of the NFT, we set decimals as 0 cause you cant own 0.5 NFts, and we add authority and freeze_authority as the signer<br>
 `associated_token_account` - Is where the NFT will be store in the user's wallet<br>
