@@ -25,7 +25,7 @@ use mpl_token_metadata::{ pda::{ find_master_edition_account, find_metadata_acco
 This context struct `MintNFT` serves as a context that defines the accounts and programs required for minting NFTs on the Solana blockchain. This struct is used as part of the Solana Anchor framework, which simplifies the development of Solana programs by providing a structured way to define and manage accounts and instructions.
 
 #### Signer Check
-`signer` is an account that must sign the transaction. It is mutable (mut) because the program may need to modify its data.
+`signer` is an account that must sign the transaction. It is mutable (`mut`) because the program may need to modify its data.
 ```
     /// CHECK: signer check
     #[account(mut, signer)]
