@@ -280,21 +280,35 @@ This CPI call (`CreateMetadataAccountsV3`) creates metadata accounts associated 
 The function returns `Ok(())` if the entire process completes without errors.
 
 ## Step 5 - Transfer SPL Tokens and NFTs
+### TransferToken Context
+This context struct `TransferToken` serves as a context that defines the accounts and programs required for transfering tokens and NFTs on the Solana blockchain.
+
+#### Signer Account
+The `from` field represents a signer account, indicating that the transaction must be signed by the owner of this account.
 ```
-#[derive(Accounts)]
-pub struct TransferToken<'info> 
-{
-    pub from: Signer<'info>,
+pub from: Signer<'info>,
+```
 
-    #[account(mut)]
-    pub from_ata: Account<'info, TokenAccount>,
-
+#### From Account (Associated Token Account)
+The `from_ata` field is a mutable account representing the "from" associated token account. It is marked as mutable, indicating that it can be modified during the execution of the program.
+```
     #[account(mut)]
     pub to_ata: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>
-}
 ```
+
+#### To Account (Associated Token Account)
+The `to_ata` field is a mutable account representing the "to" associated token account. It is marked as mutable, indicating that it can be modified during the execution of the program.
+```
+    #[account(mut)]
+    pub to_ata: Account<'info, TokenAccount>,
+```
+
+#### Token Program Account
+The `token_program` field represents the Solana Token program, and it is not marked as mutable since it is not modified during the execution of the program. It allows the Solana program to interact with the Token program for token transfers.
+```
+    pub token_program: Program<'info, Token>
+```
+
 ```
     pub fn transfer_tokens(ctx: Context<TransferToken>, amount: u64) -> Result<()> 
     {
