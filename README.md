@@ -84,65 +84,80 @@ The remaining fields are programs and sysvars required for the execution of the 
 ```
 
 ### MintNFT Function
+This function `mint_nft`, is used to mint a new NFT on the Solana blockchain. It utilizes Solana Anchor and includes several CPI (Cross-Program Invocation) calls to interact with different programs on the Solana blockchain.
+
+#### Function Signature
+The `mint_nft` function takes a `Context` of type `MintNFT` as its first parameter, along with additional parameters (`name`, `symbol`, `uri`). It returns a `Result` indicating success or failure.
 ```
-pub fn mint_nft(ctx: Context<MintNFT>, name: String, symbol: String, uri: String) -> Result<()> 
-    {
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            MintTo {
-                mint: ctx.accounts.mint.to_account_info(),
-                to: ctx.accounts.associated_token_account.to_account_info(),
-                authority: ctx.accounts.signer.to_account_info(),
-            },
-        );
-
-        mint_to(cpi_context, 1)?;
-
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_metadata_program.to_account_info(),
-            CreateMetadataAccountsV3 {
-                metadata: ctx.accounts.metadata_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                mint_authority: ctx.accounts.signer.to_account_info(),
-                update_authority: ctx.accounts.signer.to_account_info(),
-                payer: ctx.accounts.signer.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
-            },
-        );
-
-        let data_v2 = DataV2 {
-            name,
-            symbol,
-            uri,
-            seller_fee_basis_points: 0,
-            creators: None,
-            collection: None,
-            uses: None,
-        };
-
-        create_metadata_accounts_v3(cpi_context, data_v2, false, true, None)?;
-
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_metadata_program.to_account_info(),
-            CreateMasterEditionV3 {
-                edition: ctx.accounts.master_edition_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                update_authority: ctx.accounts.signer.to_account_info(),
-                mint_authority: ctx.accounts.signer.to_account_info(),
-                payer: ctx.accounts.signer.to_account_info(),
-                metadata: ctx.accounts.metadata_account.to_account_info(),
-                token_program: ctx.accounts.token_program.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
-            },
-        );
-
-        create_master_edition_v3(cpi_context, None)?;
-
-        Ok(())
-    }
+pub fn mint_nft(ctx: Context<MintNFT>, name: String, symbol: String, uri: String) -> Result<()>
 ```
+
+#### Mint To CPI Call
+This CPI call (`MintTo`) mints 1 token to the associated token account. It uses the `CpiContext` to define the involved accounts and calls the `mint_to` function.
+```
+let cpi_context = CpiContext::new(
+    ctx.accounts.token_program.to_account_info(),
+    MintTo {
+        mint: ctx.accounts.mint.to_account_info(),
+        to: ctx.accounts.associated_token_account.to_account_info(),
+        authority: ctx.accounts.signer.to_account_info(),
+    },
+);
+
+mint_to(cpi_context, 1)?;
+```
+
+#### Create Metadata Accounts CPI Call
+This CPI call (`CreateMetadataAccountsV3`) creates metadata accounts. It specifies metadata, mint, authorities, and other required accounts. The function also prepares data for the metadata account.
+```
+let cpi_context = CpiContext::new(
+    ctx.accounts.token_metadata_program.to_account_info(),
+    CreateMetadataAccountsV3 {
+        metadata: ctx.accounts.metadata_account.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+        mint_authority: ctx.accounts.signer.to_account_info(),
+        update_authority: ctx.accounts.signer.to_account_info(),
+        payer: ctx.accounts.signer.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        rent: ctx.accounts.rent.to_account_info(),
+    },
+);
+
+let data_v2 = DataV2 {
+    name,
+    symbol,
+    uri,
+    seller_fee_basis_points: 0,
+    creators: None,
+    collection: None,
+    uses: None,
+};
+
+create_metadata_accounts_v3(cpi_context, data_v2, false, true, None)?;
+```
+
+#### Create Master Edition CPI Call
+This CPI call (`CreateMasterEditionV3`) creates a master edition. It involves specifying the edition, mint, authorities, metadata, and other required accounts. The function calls `create_master_edition_v3` with the given context.
+```
+let cpi_context = CpiContext::new(
+    ctx.accounts.token_metadata_program.to_account_info(),
+    CreateMasterEditionV3 {
+        edition: ctx.accounts.master_edition_account.to_account_info(),
+        mint: ctx.accounts.mint.to_account_info(),
+        update_authority: ctx.accounts.signer.to_account_info(),
+        mint_authority: ctx.accounts.signer.to_account_info(),
+        payer: ctx.accounts.signer.to_account_info(),
+        metadata: ctx.accounts.metadata_account.to_account_info(),
+        token_program: ctx.accounts.token_program.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+        rent: ctx.accounts.rent.to_account_info(),
+    },
+);
+
+create_master_edition_v3(cpi_context, None)?;
+```
+
+The function returns `Ok(())` if the entire process completes without errors.
 
 ## Step 4 - Minting SPL Tokens
 ```
