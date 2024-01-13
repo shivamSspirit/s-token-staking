@@ -21,6 +21,7 @@ use mpl_token_metadata::{ pda::{ find_master_edition_account, find_metadata_acco
 ```
 
 ## Step 3 - Minting NFTs
+### MintNFT Context 
 ```
 #[derive(Accounts)]
 pub struct MintNFT<'info> 
@@ -73,6 +74,7 @@ Here, <br>
 `token_metadata_program` - Is the Token Metadata Program ID<br>
 `system_program` - Is the System Program ID<br>
 
+### MintNFT Function
 ```
 pub fn mint_nft(ctx: Context<MintNFT>, name: String, symbol: String, uri: String) -> Result<()> 
     {
