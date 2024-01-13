@@ -221,48 +221,63 @@ The remaining fields are programs and sysvars required for the execution of the 
     pub system_program: Program<'info, System>
 ```
 
+### MintToken Function
+#### Function Signature
+The `mint_token` function takes a `Context` of type `MintToken` as its first parameter, along with additional parameters (`_decimals`, `name`, `symbol`, `uri`, `amount`). It returns a `Result` indicating success or failure.
 ```
-    pub fn mint_token(ctx: Context<MintToken>, _decimals: u8, name: String, symbol: String, uri: String, amount: u64) -> Result<()> 
-    {
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            MintTo {
-                mint: ctx.accounts.mint.to_account_info(),
-                to: ctx.accounts.associated_token_account.to_account_info(),
-                authority: ctx.accounts.signer.to_account_info(),
-            },
-        );
-
-        mint_to(cpi_context, amount)?;
-
-        let cpi_context = CpiContext::new(
-            ctx.accounts.token_metadata_program.to_account_info(),
-            CreateMetadataAccountsV3 {
-                metadata: ctx.accounts.metadata_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                mint_authority: ctx.accounts.signer.to_account_info(),
-                update_authority: ctx.accounts.signer.to_account_info(),
-                payer: ctx.accounts.signer.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-                rent: ctx.accounts.rent.to_account_info(),
-            },
-        );
-
-        let data_v2 = DataV2 {
-            name,
-            symbol,
-            uri,
-            seller_fee_basis_points: 0,
-            creators: None,
-            collection: None,
-            uses: None,
-        };
-
-        create_metadata_accounts_v3(cpi_context, data_v2, false, true, None)?;
-
-        Ok(())
-    }
+pub fn mint_token(ctx: Context<MintToken>, _decimals: u8, name: String, symbol: String, uri: String, amount: u64) -> Result<()> 
 ```
+
+#### Mint To CPI Call
+This CPI call (`MintTo`) mints a specified `amount` of tokens to the associated token account. The `CpiContext` is used to define the involved accounts for the CPI call. The `mint_to` function is called with the defined context and the specified `amount`.
+```
+    // Mint To CPI Call
+    let cpi_context = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        MintTo {
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.associated_token_account.to_account_info(),
+            authority: ctx.accounts.signer.to_account_info(),
+        },
+    );
+
+    // Mint Tokens to Associated Token Account
+    mint_to(cpi_context, amount)?;
+```
+
+#### Create Metadata Accounts CPI Call
+This CPI call (`CreateMetadataAccountsV3`) creates metadata accounts associated with the mint. The `CpiContext` is used to define the involved accounts for the CPI call. The function prepares metadata information (`data_v2`) including `name`, `symbol`, `uri`, and other details. The `create_metadata_accounts_v3` function is called with the defined context and metadata information.
+```
+    // Create Metadata Accounts CPI Call
+    let cpi_context = CpiContext::new(
+        ctx.accounts.token_metadata_program.to_account_info(),
+        CreateMetadataAccountsV3 {
+            metadata: ctx.accounts.metadata_account.to_account_info(),
+            mint: ctx.accounts.mint.to_account_info(),
+            mint_authority: ctx.accounts.signer.to_account_info(),
+            update_authority: ctx.accounts.signer.to_account_info(),
+            payer: ctx.accounts.signer.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            rent: ctx.accounts.rent.to_account_info(),
+        },
+    );
+
+    // Data for Metadata Account
+    let data_v2 = DataV2 {
+        name,
+        symbol,
+        uri,
+        seller_fee_basis_points: 0,
+        creators: None,
+        collection: None,
+        uses: None,
+    };
+
+    // Create Metadata Accounts
+    create_metadata_accounts_v3(cpi_context, data_v2, false, true, None)?;
+```
+
+The function returns `Ok(())` if the entire process completes without errors.
 
 ## Step 5 - Transfer SPL Tokens and NFTs
 ```
