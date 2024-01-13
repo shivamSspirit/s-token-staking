@@ -160,15 +160,20 @@ create_master_edition_v3(cpi_context, None)?;
 The function returns `Ok(())` if the entire process completes without errors.
 
 ## Step 4 - Minting SPL Tokens
+### MintToken Context
+This context struct `MintToken` serves as a context that defines the accounts and programs required for minting SPL Tokens on the Solana blockchain.
+
+#### Signer Check
+`signer` is an account that must sign the transaction. It is mutable (`mut`) because the program may need to modify its data.
 ```
-#[derive(Accounts)]
-#[instruction(decimals: u8)]
-pub struct MintToken<'info> 
-{
     /// CHECK: signer check
     #[account(mut, signer)]
     signer: AccountInfo<'info>,
+```
 
+#### Mint Account
+`mint` is an account representing the mint of the NFTs. It is initialized (`init`) if it doesn't exist. The payer for the initialization is the `signer` account. Additional attributes for the `mint` account are specified using the `mint::` prefix, including setting the number of decimals to `decimals` that we got from the instruction, specifying the mint authority as the `signer` key, and setting the freeze authority to the `signer` key.
+```
     #[account(
         init,
         payer = signer,
@@ -177,29 +182,45 @@ pub struct MintToken<'info>
         mint::freeze_authority = signer.key(),
     )]
     mint: Account<'info, Mint>,
+```
 
+#### Metadata Account
+`metadata_account` is a mutable account info representing the metadata account associated with the `mint`. The address of this account is determined by calling the `find_metadata_account` function with the mint's key.
+```
     /// CHECK:
     #[account(mut, address = find_metadata_account(&mint.key()).0)]
     pub metadata_account: AccountInfo<'info>,
+```
 
+#### Associated Token Account
+`associated_token_account` is an associated token account, created if it doesn't exist. The payer for the initialization is the `signer`. The associated token account is associated with the specified `mint` and has the `signer` as its authority.
+```
     #[account(
         init_if_needed,
         payer = signer,
         associated_token::mint = mint,
-        associated_token::authority = signer,
+        associated_token::authority = signer
     )]
     pub associated_token_account: Account<'info, TokenAccount>,
+```
 
+#### Token Metadata Program Account
+The `token_metadata_program` is an unchecked account representing the token metadata program. The address is specified using the `mpl_token_metadata::id()` function.
+```
     /// CHECK: account constraint checked in account trait
     #[account(address = mpl_token_metadata::id())]
     pub token_metadata_program: UncheckedAccount<'info>,
+```
 
+#### Additional Programs and Sysvars
+The remaining fields are programs and sysvars required for the execution of the minting process. These include the `token_program` for interacting with token accounts, `rent` for managing rent sysvar, `associated_token_program` for managing associated token accounts, and `system_program` for basic system operations.
+```
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>
-}
 ```
+
 ```
     pub fn mint_token(ctx: Context<MintToken>, _decimals: u8, name: String, symbol: String, uri: String, amount: u64) -> Result<()> 
     {
