@@ -21,15 +21,20 @@ use mpl_token_metadata::{ pda::{ find_master_edition_account, find_metadata_acco
 ```
 
 ## Step 3 - Minting NFTs
-### MintNFT Context 
+### MintNFT Context
+This context struct `MintNFT` serves as a context that defines the accounts and programs required for minting NFTs on the Solana blockchain. This struct is used as part of the Solana Anchor framework, which simplifies the development of Solana programs by providing a structured way to define and manage accounts and instructions.
+
+#### Signer Check
+`signer` is an account that must sign the transaction. It is mutable (mut) because the program may need to modify its data.
 ```
-#[derive(Accounts)]
-pub struct MintNFT<'info> 
-{
     /// CHECK: signer check
     #[account(mut, signer)]
     signer: AccountInfo<'info>,
+```
 
+#### Mint Account
+`mint` is an account representing the mint of the NFTs. It is initialized (`init`) if it doesn't exist. The payer for the initialization is the `signer` account. Additional attributes for the `mint` account are specified using the `mint::` prefix, including setting the number of decimals to 0, specifying the mint authority as the `signer` key, and setting the freeze authority to the `signer` key.
+```
     #[account(
         init,
         payer = signer,
@@ -38,7 +43,11 @@ pub struct MintNFT<'info>
         mint::freeze_authority = signer.key()
     )]
     mint: Account<'info, Mint>,
+```
 
+#### Associated Token Account
+`associated_token_account` is an associated token account, created if it doesn't exist. The payer for the initialization is the `signer`. The associated token account is associated with the specified `mint` and has the `signer` as its authority.
+```
     #[account(
         init_if_needed,
         payer = signer,
@@ -46,33 +55,33 @@ pub struct MintNFT<'info>
         associated_token::authority = signer
     )]
     pub associated_token_account: Account<'info, TokenAccount>,
+```
 
+#### Metadata Account
+`metadata_account` is a mutable account info representing the metadata account associated with the `mint`. The address of this account is determined by calling the `find_metadata_account` function with the mint's key.
+```
     /// CHECK:
     #[account(mut, address = find_metadata_account(&mint.key()).0)]
     pub metadata_account: AccountInfo<'info>,
+```
 
+#### Master Edition Account
+`master_edition_account` is a mutable account info representing the master edition account associated with the `mint`. The address of this account is determined by calling the `find_master_edition_account` function with the mint's key.
+```
     /// CHECK:
     #[account(mut, address = find_master_edition_account(&mint.key()).0)]
     pub master_edition_account: AccountInfo<'info>,
+```
 
+#### Additional Programs and Sysvars
+The remaining fields are programs and sysvars required for the execution of the minting process. These include the `token_program` for interacting with token accounts, `rent` for managing rent sysvar, `associated_token_program` for managing associated token accounts, `token_metadata_program` for handling metadata, and `system_program` for basic system operations.
+```
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_metadata_program: Program<'info, Metadata>,
     pub system_program: Program<'info, System>,
-}
 ```
-Here, <br>
-`signer` - Is the Signer of the transaction <br>
-`mint` - Is the mint of the NFT, we set decimals as 0 cause you cant own 0.5 NFts, and we add authority and freeze_authority as the signer<br>
-`associated_token_account` - Is where the NFT will be store in the user's wallet<br>
-`metadata_account` - Is the metaplex metadata account<br>
-`master_edition_account` - Is the master edition account of the NFT<br>
-`token_program` - Is the Token Program ID<br>
-`rent` - Is the rent account<br>
-`associated_token_program` - Is the Associated Token Program ID<br>
-`token_metadata_program` - Is the Token Metadata Program ID<br>
-`system_program` - Is the System Program ID<br>
 
 ### MintNFT Function
 ```
