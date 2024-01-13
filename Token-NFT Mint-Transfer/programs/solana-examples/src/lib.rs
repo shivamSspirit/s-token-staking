@@ -3,7 +3,7 @@ use anchor_spl::{ associated_token::AssociatedToken, metadata::
     {create_master_edition_v3, create_metadata_accounts_v3, CreateMasterEditionV3, CreateMetadataAccountsV3, Metadata}, token::{mint_to, Mint, MintTo, Token, TokenAccount }};
 use mpl_token_metadata::{ pda::{ find_master_edition_account, find_metadata_account}, state::DataV2 };
 
-declare_id!("2eJZ5TyrghKP9aj9gd8rUEgqT5niGbyWYZcWHawGxD7f");
+declare_id!("FbZAgbRfqxAx27JYaFuBqaYieBWYoDKkkfnD8pFJriVn");
 
 #[program]
 pub mod solana_examples 

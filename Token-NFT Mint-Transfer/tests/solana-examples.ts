@@ -37,7 +37,30 @@ describe("solana-examples", async () =>
 		uri: "https://raw.githubusercontent.com/687c/solana-nft-native-client/main/metadata.json",
 	};
 
-	it("Mint NFT!", async () =>
+	// it("Mint NFT!", async () =>
+	// {
+	// 	const tx = await program.methods
+	// 			.mintNft(metadata.name, metadata.symbol, metadata.uri)
+	// 			.accounts({
+	// 				signer: provider.publicKey,
+	// 				mint: mint.publicKey,
+	// 				associatedTokenAccount,
+	// 				metadataAccount,
+	// 				masterEditionAccount,
+	// 				tokenProgram: TOKEN_PROGRAM_ID,
+	// 				associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+	// 				tokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+	// 				systemProgram: anchor.web3.SystemProgram.programId,
+	// 				rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+	// 			})
+	// 			.signers([mint])
+	// 			.rpc();
+
+	// 	console.log(`mint nft tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+	// 	console.log(`minted nft: https://explorer.solana.com/address/${mint.publicKey}?cluster=devnet`);
+	// });
+
+	it("Mint Token!", async () =>
 	{
 		const tx = await program.methods
 				.mintNft(metadata.name, metadata.symbol, metadata.uri)
