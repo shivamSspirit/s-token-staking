@@ -87,8 +87,8 @@ describe("solana-examples", async () =>
 
 	it("Transfer NFT!", async () =>
 	{
-		var mint = new anchor.web3.PublicKey("H7PgWoocCVm17rdrWEZXghsAaQQj56zKuExcbMii4W2c");
-		var toUserAddress = new anchor.web3.PublicKey("Ggg31TYu5hzH8x7x47W4ZXLqnEPSSqV1nF4YbJAfJyNi");
+		var mint = new anchor.web3.PublicKey("YOUR_MINT_ADDRESS");
+		var toUserAddress = new anchor.web3.PublicKey("TO_USER_ADDRESS");
 		var fromWallet = loadKeypairFromFile("/home/home/.config/solana/id.json");
 		
 		const fromAta = await getAssociatedTokenAddress(
@@ -119,8 +119,8 @@ describe("solana-examples", async () =>
 
 	it("Transfer Token!", async () =>
 	{
-		var mint = new anchor.web3.PublicKey("2oAzfYi29d1QP4UMzAULWbT2ZihPKbdy77hfvaxs2o2w");
-		var toUserAddress = new anchor.web3.PublicKey("Ggg31TYu5hzH8x7x47W4ZXLqnEPSSqV1nF4YbJAfJyNi");
+		var mint = new anchor.web3.PublicKey("YOUR_MINT_ADDRESS");
+		var toUserAddress = new anchor.web3.PublicKey("TO_USER_ADDRESS");
 		var fromWallet = loadKeypairFromFile("/home/home/.config/solana/id.json");
 		
 		const fromAta = await getAssociatedTokenAddress(
@@ -150,8 +150,8 @@ describe("solana-examples", async () =>
 	});
 });
 
-function loadKeypairFromFile(filename: string): Keypair {
-  
+function loadKeypairFromFile(filename: string): Keypair
+{
   const secret = JSON.parse(fs.readFileSync(filename).toString()) as number[];
   const secretKey = Uint8Array.from(secret);
   return Keypair.fromSecretKey(secretKey);
