@@ -337,6 +337,8 @@ The function invokes the token transfer using the `token::transfer` CPI call. Th
 ```
 
 ## Step 6 - Tests
+#### Imports
+The code starts by importing various libraries and modules necessary for interacting with the Solana blockchain, Metaplex, and related functionalities. Notable imports include `anchor`, `umi`, `spl-token` for token-related operations, and `@solana/web3.js` for interacting with the Solana blockchain.
 ```
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
@@ -350,150 +352,147 @@ import { findMasterEditionPda, findMetadataPda, mplTokenMetadata, MPL_TOKEN_META
 import { BN } from "bn.js";
 import { Keypair } from "@solana/web3.js";
 import fs from "fs";
+```
 
-describe("solana-examples", async () =>
-{
-  	const provider = anchor.AnchorProvider.env();
-	anchor.setProvider(provider);
+#### Test Suite Initialization
+A Jest test suite is initiated with the name "solana-examples." An Anchor provider is created using the environment configuration. The Solana Examples program is loaded from the workspace, and a signer is defined using the provider's wallet. UMI is created with specific configurations, including the Solana Devnet API endpoint and wallet adapter for identity. A new keypair (`mint`) is generated for use in the subsequent code.
+```
+describe("solana-examples", async () => {
+    const provider = anchor.AnchorProvider.env();
+    anchor.setProvider(provider);
 
-	const program = anchor.workspace.SolanaExamples as Program<SolanaExamples>;
-	const signer = provider.wallet;
-	const umi = createUmi("https://api.devnet.solana.com").use(walletAdapterIdentity(signer)).use(mplTokenMetadata());
-	const mint = anchor.web3.Keypair.generate();
-
-	const associatedTokenAccount = await getAssociatedTokenAddress(
-		mint.publicKey,
-		signer.publicKey
-	);
-
-	let metadataAccount = findMetadataPda(umi, {
-		mint: publicKey(mint.publicKey),
-	})[0];
-
-	let masterEditionAccount = findMasterEditionPda(umi, {
-		mint: publicKey(mint.publicKey),
-	})[0];
-
-	const metadata = {
-		name: "Test",
-		symbol: "TST",
-		uri: "https://raw.githubusercontent.com/solana-developers/program-examples/new-examples/tokens/tokens/.assets/nft.json",
-	};
-
-	it("Mint NFT!", async () =>
-	{
-		const tx = await program.methods
-				.mintNft(metadata.name, metadata.symbol, metadata.uri)
-				.accounts({
-					signer: provider.publicKey,
-					mint: mint.publicKey,
-					associatedTokenAccount,
-					metadataAccount,
-					masterEditionAccount,
-					tokenProgram: TOKEN_PROGRAM_ID,
-					associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-					tokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
-					systemProgram: anchor.web3.SystemProgram.programId,
-					rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-				})
-				.signers([mint])
-				.rpc();
-
-		console.log(`mint nft tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
-		console.log(`minted nft: https://explorer.solana.com/address/${mint.publicKey}?cluster=devnet`);
-	});
-
-	it("Mint Token!", async () =>
-	{
-		const tx = await program.methods
-				.mintToken(9, metadata.name, metadata.symbol, metadata.uri, new BN(10 * 1000000000))
-				.accounts({
-					signer: provider.publicKey,
-					mint: mint.publicKey,
-					associatedTokenAccount,
-					metadataAccount,
-					tokenProgram: TOKEN_PROGRAM_ID,
-					associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-					tokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
-					systemProgram: anchor.web3.SystemProgram.programId,
-					rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-				})
-				.signers([mint])
-				.rpc();
-
-		console.log(`mint token tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
-		console.log(`minted token: https://explorer.solana.com/address/${mint.publicKey}?cluster=devnet`);
-	});
-
-	it("Transfer NFT!", async () =>
-	{
-		var mint = new anchor.web3.PublicKey("H7PgWoocCVm17rdrWEZXghsAaQQj56zKuExcbMii4W2c");
-		var toUserAddress = new anchor.web3.PublicKey("Ggg31TYu5hzH8x7x47W4ZXLqnEPSSqV1nF4YbJAfJyNi");
-		var fromWallet = loadKeypairFromFile("/home/home/.config/solana/id.json");
-		
-		const fromAta = await getAssociatedTokenAddress(
-			mint,
-			signer.publicKey
-		);
-
-		const toAta = await getOrCreateAssociatedTokenAccount(
-			provider.connection,
-			fromWallet,
-			mint,
-			toUserAddress
-		);
-
-		const tx = await program.methods
-				.transferTokens(new BN(1))
-				.accounts({
-					from: fromWallet.publicKey,
-					fromAta: fromAta,
-					toAta: toAta.address,
-					tokenProgram: TOKEN_PROGRAM_ID
-				}).
-				signers([fromWallet])
-				.rpc();
-
-		console.log(`transfer nft tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
-	});
-
-	it("Transfer Token!", async () =>
-	{
-		var mint = new anchor.web3.PublicKey("2oAzfYi29d1QP4UMzAULWbT2ZihPKbdy77hfvaxs2o2w");
-		var toUserAddress = new anchor.web3.PublicKey("Ggg31TYu5hzH8x7x47W4ZXLqnEPSSqV1nF4YbJAfJyNi");
-		var fromWallet = loadKeypairFromFile("/home/home/.config/solana/id.json");
-		
-		const fromAta = await getAssociatedTokenAddress(
-			mint,
-			signer.publicKey
-		);
-
-		const toAta = await getOrCreateAssociatedTokenAccount(
-			provider.connection,
-			fromWallet,
-			mint,
-			toUserAddress
-		);
-
-		const tx = await program.methods
-				.transferTokens(new BN(5 * 100000000))
-				.accounts({
-					from: fromWallet.publicKey,
-					fromAta: fromAta,
-					toAta: toAta.address,
-					tokenProgram: TOKEN_PROGRAM_ID
-				}).
-				signers([fromWallet])
-				.rpc();
-
-		console.log(`transfer token tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
-	});
+    const program = anchor.workspace.SolanaExamples as Program<SolanaExamples>;
+    const signer = provider.wallet;
+    const umi = createUmi("https://api.devnet.solana.com").use(walletAdapterIdentity(signer)).use(mplTokenMetadata());
+    const mint = anchor.web3.Keypair.generate();
+    // ...
 });
+```
 
+#### Associated Token Account and Metadata/Master Edition Lookup
+An associated token account address is obtained using the mint's public key and the signer's public key. Metadata and Master Edition accounts are found using functions from the Metaplex ecosystem.
+```
+const associatedTokenAccount = await getAssociatedTokenAddress(
+    mint.publicKey,
+    signer.publicKey
+);
+
+let metadataAccount = findMetadataPda(umi, {
+    mint: publicKey(mint.publicKey),
+})[0];
+
+let masterEditionAccount = findMasterEditionPda(umi, {
+    mint: publicKey(mint.publicKey),
+})[0];
+```
+
+#### Metadata Definition
+A metadata object is defined with properties such as `name`, `symbol`, and `uri` for NFT minting.
+```
+const metadata = {
+    name: "Test",
+    symbol: "TST",
+    uri: "https://raw.githubusercontent.com/solana-developers/program-examples/new-examples/tokens/tokens/.assets/nft.json",
+};
+```
+
+#### Mint NFT Transaction
+A Jest test case (`it`) is defined for minting an NFT. The `mintNft` method from the Solana Examples program is called with specified metadata properties. Relevant accounts, programs, and signers are provided in the `accounts` section. The transaction is executed using `.rpc()`. Transaction details and the minted NFT's address are logged.
+```
+it("Mint NFT!", async () => {
+    const tx = await program.methods
+        .mintNft(metadata.name, metadata.symbol, metadata.uri)
+        .accounts({
+            signer: provider.publicKey,
+            mint: mint.publicKey,
+            associatedTokenAccount,
+            metadataAccount,
+            masterEditionAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        })
+        .signers([mint])
+        .rpc();
+
+    console.log(`mint nft tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+    console.log(`minted nft: https://explorer.solana.com/address/${mint.publicKey}?cluster=devnet`);
+});
+```
+
+#### Mint Token Transaction
+Another Jest test case is defined for minting a token. The `mintToken` method is called with specified parameters. Similar to the NFT minting, relevant accounts, programs, and signers are provided. The transaction is executed, and details are logged.
+```
+it("Mint Token!", async () => {
+    const tx = await program.methods
+        .mintToken(9, metadata.name, metadata.symbol, metadata.uri, new BN(10 * 1000000000))
+        .accounts({
+            signer: provider.publicKey,
+            mint: mint.publicKey,
+            associatedTokenAccount,
+            metadataAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        })
+        .signers([mint])
+        .rpc();
+
+    console.log(`mint token tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+    console.log(`minted token: https://explorer.solana.com/address/${mint.publicKey}?cluster=devnet`);
+});
+```
+
+#### Transfer NFT Transaction
+A Jest test case is defined for transferring an NFT. Associated token accounts (`fromAta` and `toAta`) are obtained using Metaplex functions. The `transferTokens` method is called with the specified amount. Transaction details are logged.
+```
+it("Transfer NFT!", async () => {
+    // ... 
+    const tx = await program.methods
+        .transferTokens(new BN(1))
+        .accounts({
+            from: fromWallet.publicKey,
+            fromAta: fromAta,
+            toAta: toAta.address,
+            tokenProgram: TOKEN_PROGRAM_ID
+        })
+        .signers([fromWallet])
+        .rpc();
+
+    console.log(`transfer nft tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+});
+```
+
+#### Transfer Token Transaction
+Another Jest test case is defined for transferring a token. Similar to the NFT transfer, associated token accounts are obtained. The `transferTokens` method is called with the specified amount. Transaction details are logged.
+```
+it("Transfer Token!", async () => {
+    // ... 
+    const tx = await program.methods
+        .transferTokens(new BN(5 * 100000000))
+        .accounts({
+            from: fromWallet.publicKey,
+            fromAta: fromAta,
+            toAta: toAta.address,
+            tokenProgram: TOKEN_PROGRAM_ID
+        })
+        .signers([fromWallet])
+        .rpc();
+
+    console.log(`transfer token tx: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+});
+```
+
+#### File Loading Function
+A utility function is defined to load a keypair from a JSON file.
+```
 function loadKeypairFromFile(filename: string): Keypair {
-  
-  const secret = JSON.parse(fs.readFileSync(filename).toString()) as number[];
-  const secretKey = Uint8Array.from(secret);
-  return Keypair.fromSecretKey(secretKey);
+    const secret = JSON.parse(fs.readFileSync(filename).toString()) as number[];
+    const secretKey = Uint8Array.from(secret);
+    return Keypair.fromSecretKey(secretKey);
 }
 ```
