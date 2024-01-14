@@ -309,21 +309,31 @@ The `token_program` field represents the Solana Token program, and it is not mar
     pub token_program: Program<'info, Token>
 ```
 
+### TransferToken Function
+#### Function Signature
+The `transfer_tokens` function takes a `Context` of type `TransferToken` as its first parameter, along with an additional parameter (`amount`), and returns a `Result` indicating success or failure.
 ```
-    pub fn transfer_tokens(ctx: Context<TransferToken>, amount: u64) -> Result<()> 
-    {
-        let cpi_accounts = Transfer 
-        {
-            from: ctx.accounts.from_ata.to_account_info(),
-            to: ctx.accounts.to_ata.to_account_info(),
-            authority: ctx.accounts.from.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        
-        token::transfer(CpiContext::new(cpi_program, cpi_accounts), amount)?;
+pub fn transfer_tokens(ctx: Context<TransferToken>, amount: u64) -> Result<()>
+```
 
-        Ok(())
-    }
+#### Transfer CPI Call Setup
+The function initializes the `cpi_accounts` and `cpi_program` variables to set up a Cross-Program Invocation (CPI) call for transferring tokens. `cpi_accounts` includes information about the source (`from`), destination (`to`), and authority accounts needed for the token transfer. `cpi_program` specifies the token program that will handle the token transfer.
+```
+    let cpi_accounts = Transfer 
+    {
+        from: ctx.accounts.from_ata.to_account_info(),
+        to: ctx.accounts.to_ata.to_account_info(),
+        authority: ctx.accounts.from.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+```
+
+#### Token Transfer CPI Call
+The function invokes the token transfer using the `token::transfer` CPI call. This call transfers the specified `amount` of tokens from the source account (`from`) to the destination account (`to`). The `CpiContext::new` is used to create a context for the CPI call, providing the token program and the relevant accounts. The `?` operator is used to handle the result of the token transfer CPI call, and if successful, it returns `Ok(())`.
+```
+    token::transfer(CpiContext::new(cpi_program, cpi_accounts), amount)?;
+
+    Ok(())
 ```
 
 ## Step 6 - Tests
