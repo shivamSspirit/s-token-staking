@@ -695,7 +695,100 @@ impl Details
 ## Step 6 - Contexts and Functions
 ### init_staking
 #### Context
+`#[derive(Accounts)]`: The `Accounts` derive macro is used to define the accounts required for the `InitStaking` struct.<br>
+`stake_details`: A mutable account used to store staking details. Initialized with `init` attribute, funded by the `creator` account. Seeds include 'STAKE', `collection_address`, and `creator` public keys. Uses a specified bump seed (`bump`) and allocates space based on `Details::LEN`. <br>
+`token_mint`: A mutable account representing the mint of the reward token. Authority is the `creator` account.<br>
+`collection_address`: An account representing the address of the NFT collection.<br>
+`creator`: A signer representing the account that initiates staking.<br>
+`token_authority`: An unchecked account used to set the authority for the reward token. Seeds include 'TOKEN_AUTHORITY' and `stake_details` public keys.<br>
+`nft_authority`: An unchecked account used to set the authority for the NFT. Seeds include 'NFT_AUTHORITY' and `stake_details` public keys.<br>
+`token_program`: A program account representing the Token program.<br>
+`system_program`: A program account representing the System program.<br>
+`InitStaking Impl`: Generates a `CpiContext` for transferring authority to the `token_mint`.
+```
+#[derive(Accounts)]
+pub struct InitStaking<'info> 
+{
+    #[account(init, payer = creator, seeds = [STAKE, collection_address.key().as_ref(), creator.key().as_ref()], bump, space = Details::LEN)]
+    pub stake_details: Account<'info, Details>,
+
+    #[account(mut, mint::authority = creator)]
+    pub token_mint: Account<'info, Mint>,
+
+    #[account(mint::decimals = 0)]
+    pub collection_address: Account<'info, Mint>,
+
+    #[account(mut)]
+    pub creator: Signer<'info>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [TOKEN_AUTHORITY, stake_details.key().as_ref()], bump)]
+    pub token_authority: UncheckedAccount<'info>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [NFT_AUTHORITY, stake_details.key().as_ref()], bump)]
+    pub nft_authority: UncheckedAccount<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>
+}
+
+impl<'info> InitStaking<'info> 
+{
+    pub fn transfer_auth_ctx(&self) -> CpiContext<'_, '_, '_, 'info, SetAuthority<'info>> 
+    {
+        let cpi_accounts = SetAuthority 
+        {
+            account_or_mint: self.token_mint.to_account_info(),
+            current_authority: self.creator.to_account_info()
+        };
+    
+        let cpi_program = self.token_program.to_account_info();
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+```
 #### Function
+`ctx`: A context object containing the accounts required for staking initialization. <br>
+`reward`: The reward amount for staking. <br>
+`minimum_period`: The minimum staking period.<br>
+Logic - Checks if the minimum period is greater than or equal to 0, else returns a `StakeError::NegativePeriodValue`. Extracts necessary account keys and bump seeds from the context. Calls the `set_authority` function using a CPI (Cross-Program Invocation) context to transfer authority for minting tokens. Initializes the `stake_details` account with staking information. Returns a `Result` indicating success or a specific `StakeError` in case of failure.
+```
+pub fn init_staking_handler(ctx: Context<InitStaking>, reward: u64, minimum_period: i64) -> Result<()> 
+{
+    require_gte!(minimum_period, 0, StakeError::NegativePeriodValue);
+
+    let reward_mint = ctx.accounts.token_mint.key();
+    let collection = ctx.accounts.collection_address.key();
+    let creator = ctx.accounts.creator.key();
+    let stake_bump = *ctx.bumps.get("stake_details").ok_or(StakeError::StakeBumpError)?;
+    let token_auth_bump = *ctx.bumps.get("token_authority").ok_or(StakeError::TokenAuthBumpError)?;
+    let nft_auth_bump = *ctx.bumps.get("nft_authority").ok_or(StakeError::NftAuthBumpError)?;
+    let token_authority = ctx.accounts.token_authority.key();
+
+    set_authority(
+        ctx.accounts.transfer_auth_ctx(),
+        AuthorityType::MintTokens,
+        Some(token_authority)
+    )?;
+
+    let stake_details = &mut ctx.accounts.stake_details;
+
+    **stake_details = Details::init(
+        creator,
+        reward_mint, 
+        reward, 
+        collection,
+        minimum_period,
+        stake_bump,
+        token_auth_bump,
+        nft_auth_bump
+    );
+
+    Ok(())
+}
+```
 ### stake
 #### Context
 #### Function
