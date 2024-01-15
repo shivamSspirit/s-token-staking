@@ -749,6 +749,7 @@ impl<'info> InitStaking<'info>
     }
 }
 ```
+
 #### Function
 `ctx`: A context object containing the accounts required for staking initialization. <br>
 `reward`: The reward amount for staking. <br>
@@ -789,16 +790,411 @@ pub fn init_staking_handler(ctx: Context<InitStaking>, reward: u64, minimum_peri
     Ok(())
 }
 ```
+
 ### stake
 #### Context
+`#[derive(Accounts)]`: The `Accounts` derive macro is used to define the accounts required for the `Stake` struct. <br>
+`stake_details`: An account representing staking details. Seeds include 'STAKE', `collection`, and `creator` public keys. Uses a specified bump seed (`stake_bump`). <br>
+`nft_record`: An account used to store NFT staking information. Initialized with `init` attribute, funded by the `signer` account. Seeds include 'NFT_RECORD', `stake_details`, and `nft_mint` public keys. Uses a specified bump seed (`bump`) and allocates space based on `NftRecord::LEN`.<br>
+`nft_mint`: An account representing the mint of the NFT. Constraints include verifying that the mint's supply is 1, else returns `StakeError::TokenNotNFT`.<br>
+`nft_token`: An account representing the NFT token. Minted under the `nft_mint` with authority assigned to the `signer`. Constraints include ensuring the token account has exactly 1 token, else returns `StakeError::TokenAccountEmpty`.<br>
+`nft_metadata`: A boxed account representing the NFT metadata. Seeds include 'METADATA', metadata program ID, `nft_mint`, and 'EDITION'. Constraints include verifying that the metadata's collection is verified and matches `stake_details.collection`.<br>
+`nft_edition`: A boxed account representing the NFT edition. Seeds include 'METADATA', metadata program ID, `nft_mint`, and 'EDITION'.<br>
+`nft_authority`: An unchecked account used to set the authority for the NFT. Seeds include 'NFT_AUTHORITY' and `stake_details`.<br>
+`nft_custody`: An account initialized under the `signer` authority for custody of the NFT.<br>
+`signer`: A signer representing the staker.<br>
+`token_program`: A program account representing the Token program.<br>
+`associated_token_program`: A program account representing the Associated Token program.<br>
+`system_program`: A program account representing the System program.<br>
+`Stake Impl`: Generates a `CpiContext` for transferring the NFT from the staker to custody.
+```
+#[derive(Accounts)]
+pub struct Stake<'info> 
+{
+    #[account(seeds = [STAKE, stake_details.collection.as_ref(), stake_details.creator.as_ref()], bump = stake_details.stake_bump)]
+    pub stake_details: Account<'info, Details>,
+
+    #[account(init, payer = signer, seeds = [NFT_RECORD, stake_details.key().as_ref(), nft_mint.key().as_ref()], bump, space = NftRecord::LEN)]
+    pub nft_record: Account<'info, NftRecord>,
+
+    #[account(mint::decimals = 0, constraint = nft_mint.supply == 1 @ StakeError::TokenNotNFT)]
+    nft_mint: Account<'info, Mint>,
+
+    #[account(mut, associated_token::mint = nft_mint, associated_token::authority = signer, constraint = nft_token.amount == 1 @ StakeError::TokenAccountEmpty)]
+    nft_token: Account<'info, TokenAccount>,
+
+    #[account(
+        seeds = [METADATA, Metadata::id().as_ref(), nft_mint.key().as_ref()], seeds::program = Metadata::id(), bump,
+        constraint = nft_metadata.collection.as_ref().unwrap().verified @ StakeError::CollectionNotVerified,
+        constraint = nft_metadata.collection.as_ref().unwrap().key == stake_details.collection @ StakeError::InvalidCollection
+    )]
+    nft_metadata: Box<Account<'info, MetadataAccount>>,
+
+    #[account(seeds = [METADATA, Metadata::id().as_ref(), nft_mint.key().as_ref(), EDITION], seeds::program = Metadata::id(), bump)]
+    nft_edition: Box<Account<'info, MasterEditionAccount>>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [NFT_AUTHORITY, stake_details.key().as_ref()], bump = stake_details.nft_auth_bump)]
+    pub nft_authority: UncheckedAccount<'info>,
+
+    #[account(init, payer = signer, associated_token::mint = nft_mint, associated_token::authority = nft_authority)]
+    pub nft_custody: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>
+}
+
+impl<'info> Stake<'info> 
+{
+    pub fn transfer_nft_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> 
+    {
+        let cpi_accounts = Transfer 
+        {
+            from: self.nft_token.to_account_info(),
+            to: self.nft_custody.to_account_info(),
+            authority: self.signer.to_account_info()
+        };
+    
+        let cpi_program = self.token_program.to_account_info();
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+```
+
 #### Function
+`ctx`: A context object containing the accounts required for the staking operation. <br>
+Logic - Checks if staking is active; else, returns `StakeError::StakingInactive`. Gets the staker's public key and NFT mint's public key. Transfers 1 token from the staker's NFT token account to the custody account. Initializes the `nft_record` with staking information.
+```
+pub fn stake_handler(ctx: Context<Stake>) -> Result<()> 
+{
+    let staking_status = ctx.accounts.stake_details.is_active;
+    
+    require_eq!(staking_status, true, StakeError::StakingInactive);
+
+    let staker = ctx.accounts.signer.key();
+    let nft_mint = ctx.accounts.nft_mint.key();
+    let bump = *ctx.bumps.get("nft_record").ok_or(StakeError::NftBumpError)?;
+
+    transfer(ctx.accounts.transfer_nft_ctx(), 1)?;
+
+    let nft_record = &mut ctx.accounts.nft_record;
+    **nft_record = NftRecord::init(staker, nft_mint, bump);
+
+    Ok(())
+}
+```
+
 ### withdraw_reward
 #### Context
+`#[derive(Accounts)]`: The `Accounts` derive macro is used to define the accounts required for the `WithdrawReward` struct.<br>
+`stake_details`: An account representing staking details. Seeds include 'STAKE', `collection`, and `creator` public keys. Uses a specified bump seed (`stake_bump`). Requires an associated account with the `reward_mint`.<br>
+`nft_record`: An account representing NFT staking information. Seeds include 'NFT_RECORD', `stake_details`, and the NFT mint's public key. Uses a specified bump seed (`nft_record.bump`). Requires an associated account with the `staker`.<br>
+`reward_mint`: A mutable account representing the mint of the reward token. The authority to mint is given by the `token_authority` account.<br>
+`reward_receive_account`: An account used to receive the reward tokens. Initialized if needed, funded by the `staker`. Associated with the `reward_mint` and has authority assigned to the `staker`.<br>
+`token_authority`: An unchecked account used to set the authority for the reward token. Seeds include 'TOKEN_AUTHORITY' and `stake_details`.<br>
+`staker`: A signer representing the staker.<br>
+`token_program`: A program account representing the Token program.<br>
+`associated_token_program`: A program account representing the Associated Token program.<br>
+`system_program`: A program account representing the System program.<br>
+`WithdrawReward Impl`: Generates a `CpiContext` for minting reward tokens.<br>
+```
+#[derive(Accounts)]
+pub struct WithdrawReward<'info> 
+{
+    #[account(seeds = [STAKE, stake_details.collection.as_ref(), stake_details.creator.as_ref()], bump = stake_details.stake_bump, has_one = reward_mint)]
+    pub stake_details: Account<'info, Details>,
+
+    #[account(mut, seeds = [NFT_RECORD, stake_details.key().as_ref(), nft_record.nft_mint.as_ref()], bump = nft_record.bump, has_one = staker)]
+    pub nft_record: Account<'info, NftRecord>,
+
+    #[account(mut, mint::authority = token_authority)]
+    pub reward_mint: Account<'info, Mint>,
+
+    #[account(init_if_needed, payer = staker, associated_token::mint = reward_mint, associated_token::authority = staker)]
+    pub reward_receive_account: Account<'info, TokenAccount>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [TOKEN_AUTHORITY, stake_details.key().as_ref()], bump)]
+    pub token_authority: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub staker: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>
+}
+
+impl<'info> WithdrawReward<'info> 
+{
+    pub fn mint_token_ctx(&self) -> CpiContext<'_, '_, '_, 'info, MintTo<'info>> 
+    {
+        let cpi_accounts = MintTo 
+        {
+            mint: self.reward_mint.to_account_info(),
+            to: self.reward_receive_account.to_account_info(),
+            authority: self.token_authority.to_account_info()
+        };
+    
+        let cpi_program = self.token_program.to_account_info();
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+```
+
 #### Function
+`ctx`: A context object containing the accounts required for the reward withdrawal operation.<br>
+Logic - Gets necessary information from staking details and calculates the reward eligibility and amount. Checks if staking is active; else, returns `StakeError::StakingInactive`. If eligible for reward, mints reward tokens to the `reward_receive_account` using the `mint_to` function. Updates the staking details with the current time.
+```
+pub fn withdraw_reward_handler(ctx: Context<WithdrawReward>) -> Result<()> 
+{
+    let stake_details = &ctx.accounts.stake_details;
+
+    let staked_at = ctx.accounts.nft_record.staked_at;
+    let minimum_stake_period = stake_details.minimum_period;
+    let reward_emission = stake_details.reward;
+    let staking_status = stake_details.is_active;
+    let token_auth_bump = stake_details.token_auth_bump;
+    let stake_details_key = stake_details.key();
+
+    require_eq!(staking_status, true, StakeError::StakingInactive);
+
+    let (reward_tokens, current_time, is_eligible_for_reward) = calculate_reward(
+        staked_at, 
+        minimum_stake_period, 
+        reward_emission,
+    ).unwrap();
+
+    let authority_seed = &[&TOKEN_AUTHORITY[..], &stake_details_key.as_ref(), &[token_auth_bump]];
+ 
+    if is_eligible_for_reward 
+    {
+        mint_to(ctx.accounts.mint_token_ctx().with_signer(&[&authority_seed[..]]), reward_tokens)?;
+    } 
+    else 
+    {
+        return err!(StakeError::IneligibleForReward);
+    }
+
+    ctx.accounts.nft_record.staked_at = current_time;
+    
+    Ok(())
+}
+```
+
 ### unstake
 #### Context
+`#[derive(Accounts)]`: The `Accounts` derive macro is used to define the accounts required for the `Unstake` struct.<br>
+`stake_details`: An account representing staking details. Seeds include 'STAKE', `collection`, and `creator` public keys. Uses a specified bump seed (`stake_bump`). Requires associated accounts with the `reward_mint`.<br>
+`nft_record`: An account representing NFT staking information. Seeds include 'NFT_RECORD', `stake_details`, and the NFT mint's public key. Uses a specified bump seed (`nft_record.bump`). Requires associated accounts with the `nft_mint`, `staker`, and closes the `staker` account.<br>
+`reward_mint`: A mutable account representing the mint of the reward token. The authority to mint is given by the `token_authority` account.<br>
+`reward_receive_account`: A boxed account used to receive the reward tokens. Initialized if needed, funded by the `staker`. Associated with the `reward_mint` and has authority assigned to the `staker`.<br>
+`nft_mint`: A boxed account representing the mint of the NFT. Constraints include verifying that the mint's supply is 1, else returns `StakeError::TokenNotNFT`.<br>
+`nft_receive_account`: A boxed account used to receive the NFT. Initialized if needed, funded by the `staker`. Associated with the `nft_mint` and has authority assigned to the `staker`.<br>
+`nft_custody`: A boxed account representing custody of the NFT. Associated with the `nft_mint` and has authority assigned to the `nft_authority`. Constraints include ensuring the token account has exactly 1 token, else returns `StakeError::TokenAccountEmpty`.<br>
+`token_authority`: An unchecked account used to set the authority for the reward token. Seeds include 'TOKEN_AUTHORITY' and `stake_details`.<br>
+`nft_authority`: An unchecked account used to set the authority for the NFT. Seeds include 'NFT_AUTHORITY' and `stake_details`.<br>
+`staker`: A signer representing the staker.<br>
+`token_program`: A program account representing the Token program.<br>
+`associated_token_program`: A program account representing the Associated Token program.<br>
+`system_program`: A program account representing the System program.<br>
+`Unstake Impl mint_token_ctx`: Generates a `CpiContext` for minting reward tokens.<br>
+`Unstake Impl transfer_nft_ctx`: Generates a `CpiContext` for transferring the NFT from custody to the staker.<br>
+`Unstake Impl close_account_ctx`: Generates a `CpiContext` for closing the NFT custody account.
+```
+#[derive(Accounts)]
+pub struct Unstake<'info> 
+{
+    #[account(seeds = [STAKE, stake_details.collection.as_ref(), stake_details.creator.as_ref()], bump = stake_details.stake_bump, has_one = reward_mint)]
+    pub stake_details: Account<'info, Details>,
+
+    #[account(mut, seeds = [NFT_RECORD, stake_details.key().as_ref(), nft_record.nft_mint.as_ref()], bump = nft_record.bump, has_one = nft_mint, has_one = staker, close = staker)]
+    pub nft_record: Account<'info, NftRecord>,
+
+    #[account(mut, mint::authority = token_authority)]
+    pub reward_mint: Account<'info, Mint>,
+
+    #[account(init_if_needed, payer = staker, associated_token::mint = reward_mint, associated_token::authority = staker)]
+    pub reward_receive_account: Box<Account<'info, TokenAccount>>,
+
+    #[account(mint::decimals = 0, constraint = nft_mint.supply == 1 @ StakeError::TokenNotNFT)]
+    nft_mint: Box<Account<'info, Mint>>,
+
+    #[account(init_if_needed, payer = staker, associated_token::mint = nft_mint, associated_token::authority = staker)]
+    nft_receive_account: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut, associated_token::mint = nft_mint, associated_token::authority = nft_authority, constraint = nft_custody.amount == 1 @ StakeError::TokenAccountEmpty)]
+    pub nft_custody: Box<Account<'info, TokenAccount>>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [TOKEN_AUTHORITY, stake_details.key().as_ref()], bump = stake_details.token_auth_bump)]
+    pub token_authority: UncheckedAccount<'info>,
+
+     /// CHECK: This account is not read or written
+    #[account(seeds = [NFT_AUTHORITY, stake_details.key().as_ref()], bump = stake_details.nft_auth_bump)]
+    pub nft_authority: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub staker: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>
+}
+
+impl<'info> Unstake<'info> 
+{
+    pub fn mint_token_ctx(&self) -> CpiContext<'_, '_, '_, 'info, MintTo<'info>> 
+    {
+        let cpi_accounts = MintTo 
+        {
+            mint: self.reward_mint.to_account_info(),
+            to: self.reward_receive_account.to_account_info(),
+            authority: self.token_authority.to_account_info()
+        };
+        let cpi_program = self.token_program.to_account_info();
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+
+    pub fn transfer_nft_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> 
+    {
+        let cpi_accounts = Transfer 
+        {
+            from: self.nft_custody.to_account_info(),
+            to: self.nft_receive_account.to_account_info(),
+            authority: self.nft_authority.to_account_info()
+        };
+        let cpi_program = self.token_program.to_account_info();
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+
+    pub fn close_account_ctx(&self)-> CpiContext<'_, '_, '_, 'info, CloseAccount<'info>> 
+    {
+        let cpi_accounts = CloseAccount 
+        {
+            account: self.nft_custody.to_account_info(),
+            destination: self.staker.to_account_info(),
+            authority: self.nft_authority.to_account_info()
+        };
+        let cpi_program = self.token_program.to_account_info();
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+```
+
 #### Function
+`ctx`: A context object containing the accounts required for the unstaking operation.<br>
+Logic - Gets necessary information from staking details and calculates the reward eligibility and amount. Checks if staking is active and the staker is eligible for a reward. If eligible for reward, mints reward tokens to the `reward_receive_account` using the `mint_to` function. Transfers the NFT from custody to the `nft_receive_account` using the `transfer` function. Closes the NFT custody account.
+```
+pub fn unstake_handler(ctx: Context<Unstake>) -> Result<()> 
+{
+    let stake_details = &ctx.accounts.stake_details;
+
+    let staked_at = ctx.accounts.nft_record.staked_at;
+    let minimum_stake_period = stake_details.minimum_period;
+    let reward_emission = stake_details.reward;
+    let staking_active = stake_details.is_active;
+    let token_auth_bump = stake_details.token_auth_bump;
+    let nft_auth_bump = stake_details.nft_auth_bump;
+    let stake_details_key = stake_details.key();
+
+    let (reward_tokens, _current_time, is_eligible_for_reward) = calculate_reward(
+        staked_at, 
+        minimum_stake_period, 
+        reward_emission,
+    ).unwrap();
+
+    let token_auth_seed = &[&TOKEN_AUTHORITY[..], &stake_details_key.as_ref(), &[token_auth_bump]];
+    let nft_auth_seed = &[&NFT_AUTHORITY[..], &stake_details_key.as_ref(), &[nft_auth_bump]];
+
+    if is_eligible_for_reward && staking_active 
+    {
+        mint_to(ctx.accounts.mint_token_ctx().with_signer(&[&token_auth_seed[..]]), reward_tokens)?;
+    }
+
+    transfer(ctx.accounts.transfer_nft_ctx().with_signer(&[&nft_auth_seed[..]]), 1)?;
+
+    close_account(ctx.accounts.close_account_ctx().with_signer(&[&nft_auth_seed[..]]))?;
+    
+    Ok(())
+}
+```
+
 ### close_staking
 #### Context
+`#[derive(Accounts)]`: The `Accounts` derive macro is used to define the accounts required for the `CloseStaking` struct.<br>
+`stake_details`: A mutable account representing staking details. Seeds include 'STAKE', `collection`, and `creator` public keys. Uses a specified bump seed (`stake_bump`). Requires an associated account with the `creator`.<br>
+`token_mint`: A mutable account representing the mint of the reward token. The authority to mint is given by the `token_authority` account.<br>
+`token_authority`: An unchecked account used to set the authority for the reward token. Seeds include 'TOKEN_AUTHORITY' and `stake_details`.<br>
+`creator`: A signer representing the account that initiated staking.<br>
+`token_program`: A program account representing the Token program.<br>
+`CloseStaking Impl`: Generates a `CpiContext` for transferring authority to the `token_mint`.
+```
+#[derive(Accounts)]
+pub struct CloseStaking<'info> 
+{
+    #[account(mut, seeds = [STAKE, stake_details.collection.as_ref(), stake_details.creator.as_ref()], bump = stake_details.stake_bump, has_one = creator)]
+    pub stake_details: Account<'info, Details>,
+
+    #[account(mut, mint::authority = token_authority)]
+    pub token_mint: Account<'info, Mint>,
+
+    /// CHECK: This account is not read or written
+    #[account(seeds = [TOKEN_AUTHORITY, stake_details.key().as_ref()], bump = stake_details.token_auth_bump)]
+    pub token_authority: UncheckedAccount<'info>,
+
+    pub creator: Signer<'info>,
+    pub token_program: Program<'info, Token>
+}
+
+impl<'info> CloseStaking<'info> 
+{
+    pub fn transfer_auth_ctx(&self) -> CpiContext<'_, '_, '_, 'info, SetAuthority<'info>> 
+    {
+        let cpi_accounts = SetAuthority 
+        {
+            account_or_mint: self.token_mint.to_account_info(),
+            current_authority: self.token_authority.to_account_info()
+        };
+    
+        let cpi_program = self.token_program.to_account_info();
+
+        CpiContext::new(cpi_program, cpi_accounts)
+    }
+}
+```
+
 #### Function
+`ctx`: A context object containing the accounts required for the staking closure operation.<br>
+Logic - Gets necessary information from staking details. Checks if staking is active; else, returns `StakeError::StakingInactive`. Defines a seed for the token authority. Calls the `set_authority` function using a CPI (Cross-Program Invocation) context to transfer authority for minting tokens. The new authority is set to the `creator`. Calls the `close_staking` method on the `stake_details` account.
+```
+pub fn close_staking_handler(ctx: Context<CloseStaking>) -> Result<()> 
+{
+    let stake_details = &ctx.accounts.stake_details;
+
+    let staking_status = stake_details.is_active;
+    let token_auth_bump = stake_details.token_auth_bump;
+    let stake_details_key = stake_details.key();
+    let creator = ctx.accounts.creator.key();
+
+    require_eq!(staking_status, true, StakeError::StakingInactive);
+
+    let token_auth_seed = &[&TOKEN_AUTHORITY[..], &stake_details_key.as_ref(), &[token_auth_bump]];
+
+    set_authority(
+        ctx.accounts.transfer_auth_ctx().with_signer(&[&token_auth_seed[..]]),
+        AuthorityType::MintTokens,
+        Some(creator)
+    )?;
+
+    ctx.accounts.stake_details.close_staking()
+}
+```
+
 ## Step 7 - Tests
