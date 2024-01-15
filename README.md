@@ -496,3 +496,215 @@ function loadKeypairFromFile(filename: string): Keypair {
     return Keypair.fromSecretKey(secretKey);
 }
 ```
+
+# How to Stake (under Staking)
+## Step 1 - Project Setup
+Create a new anchor project using `anchor init [project_name]`, paste the following dependencies under Corgo.toml
+```
+[dependencies]
+anchor-lang = {version = "0.28.0", features = ["init-if-needed"]}
+anchor-spl = { version = "0.28.0", features = ["metadata"] }
+ahash = "=0.8.4"
+```
+Then open Anchor.toml and change cluster to `Devnet`
+
+## Step 2 - Constants
+These constants are used as PDA seeds
+```
+pub const STAKE: &[u8; 5] = b"STAKE";
+pub const NFT_RECORD: &[u8; 10] = b"NFT_RECORD";
+pub const NFT_AUTHORITY: &[u8; 13] = b"NFT_AUTHORITY";
+pub const TOKEN_AUTHORITY: &[u8; 15] = b"TOKEN_AUTHORITY";
+pub const METADATA: &[u8; 8] = b"METADATA";
+pub const EDITION: &[u8; 7] = b"EDITION";
+```
+
+## Step 3 - Errors
+This is the list of all the errors that can occur while going through the staking cycle, the errors the explained in the code itslef, so it'll be pretty self explanatory.
+```
+#[error_code]
+pub enum StakeError {
+    #[msg("unable to get stake details bump")]
+    StakeBumpError,
+    #[msg("unable to get token authority bump")]
+    TokenAuthBumpError,
+    #[msg("unable to get token authority bump")]
+    NftAuthBumpError,
+    #[msg("unable to get nft record bump")]
+    NftBumpError,
+    #[msg("the minimum staking period in secs can't be negative")]
+    NegativePeriodValue,
+    #[msg("the given mint account doesn't belong to NFT")]
+    TokenNotNFT,
+    #[msg("the given token account has no token")]
+    TokenAccountEmpty,
+    #[msg("the collection field in the metadata is not verified")]
+    CollectionNotVerified,
+    #[msg("the collection doesn't match the staking details")]
+    InvalidCollection,
+    #[msg("the minimum stake period for the rewards not completed yet")]
+    IneligibleForReward,
+    #[msg("the staking is not currently active")]
+    StakingInactive,
+    #[msg("failed to convert the time to u64")]
+    FailedTimeConversion,
+    #[msg("unable to add the given values")]
+    ProgramAddError,
+    #[msg("unable to subtract the given values")]
+    ProgramSubError,
+    #[msg("unable to multiply the given values")]
+    ProgramMulError,
+}
+```
+
+## Step 4 - Utils (Helpers)
+We will use this function to calculate our staking rewards
+```
+use anchor_lang::prelude::*;
+use crate::StakeError;
+
+pub fn calculate_reward
+(
+    staked_at: i64,
+    minimum_stake_period: i64,
+    reward_emission: u64,
+) -> Result<(u64, i64, bool)> 
+{
+    let clock = Clock::get().unwrap();
+    let current_time = clock.unix_timestamp;
+
+    let reward_eligible_time = staked_at.checked_add(minimum_stake_period).ok_or(StakeError::ProgramAddError)?;
+    let is_eligible_for_reward = current_time >= reward_eligible_time;
+
+    let rewardable_time_i64 = current_time.checked_sub(staked_at).ok_or(StakeError::ProgramSubError)?;
+
+    let rewardable_time_u64 = match u64::try_from(rewardable_time_i64) 
+    {
+        Ok(time) => time,
+        _ => return err!(StakeError::FailedTimeConversion)
+    };
+
+    let reward_tokens = rewardable_time_u64.checked_mul(reward_emission).ok_or(StakeError::ProgramMulError)?;
+    Ok((reward_tokens, current_time, is_eligible_for_reward))
+}
+```
+
+## Step 5 - Structs
+### NftRecord
+#### NftRecord Account
+The `NftRecord` struct is used to store the basic information about a staked NFT. The `#[account]` attribute is used to annotate this struct as an account, which means it can be used as a state account in a Solana program.
+`staker`: A public key representing the account that staked the NFT.
+`nft_mint`: A public key representing the mint of the NFT.
+`staked_at`: A 64-bit signed integer (i64) representing the timestamp when the NFT was staked.
+`bump`: An 8-bit unsigned integer (u8) representing a bump seed.
+```
+#[account]
+pub struct NftRecord 
+{
+    pub staker: Pubkey,
+    pub nft_mint: Pubkey,
+    pub staked_at: i64,
+    pub bump: u8
+}
+```
+
+#### NftRecord Implementations
+`LEN`: A constant indicating the length of the serialized account data in bytes.
+`init`: A public method used to initialize a new `NftRecord` instance. It sets the `staked_at` field to the current Unix timestamp obtained from the Solana `Clock`.
+```
+impl NftRecord 
+{
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 1;
+
+    pub fn init(staker: Pubkey, nft_mint: Pubkey, bump: u8) -> Self 
+    {
+        let clock = Clock::get().unwrap();
+        let staked_at = clock.unix_timestamp;
+
+        Self {staker, nft_mint, staked_at, bump}
+    }
+}
+```
+
+### Details
+#### Details Account
+`is_active`: A boolean indicating whether the staking details are active.
+`creator`: A public key representing the account that created the staking details.
+`reward_mint`: A public key representing the mint of the reward token.
+`reward`: A 64-bit unsigned integer representing the reward amount.
+`collection`: A public key representing the NFT collection associated with the staking details.
+`minimum_period`: A 64-bit signed integer representing the minimum staking period.
+`stake_bump`, `token_auth_bump`, `nft_auth_bump`: 8-bit unsigned integers representing bump seeds.
+```
+#[account]
+pub struct Details 
+{
+    pub is_active: bool,
+    pub creator: Pubkey,
+    pub reward_mint: Pubkey,
+    pub reward: u64,
+    pub collection: Pubkey,
+    pub minimum_period: i64,
+    pub stake_bump: u8,
+    pub token_auth_bump: u8,
+    pub nft_auth_bump: u8
+}
+```
+#### Details Implementation
+`LEN`: A constant indicating the length of the serialized account data in bytes.
+`init`: A public method used to initialize a new `Details` instance.
+`close_staking`: A method to close staking by setting `is_active` to `false`.
+```
+impl Details 
+{
+    pub const LEN: usize = 8 + 1 + 32 + 32 + 8 + 32 + 8 + 1 + 1 + 1;
+
+    pub fn init(
+        creator: Pubkey,
+        reward_mint: Pubkey,
+        reward: u64,
+        collection: Pubkey,
+        minimum_period: i64,
+        stake_bump: u8,
+        token_auth_bump: u8,
+        nft_auth_bump: u8
+    ) -> Self 
+    {
+        Self 
+        {
+            is_active: true,
+            creator,
+            reward_mint,
+            reward,
+            collection,
+            minimum_period,
+            stake_bump,
+            token_auth_bump,
+            nft_auth_bump
+        }
+    }
+
+    pub fn close_staking(&mut self) -> Result<()> 
+    {
+        self.is_active = false;
+        Ok(())
+    }
+}
+```
+
+## Step 6 - Contexts and Functions
+### init_staking
+#### Context
+#### Function
+### stake
+#### Context
+#### Function
+### withdraw_reward
+#### Context
+#### Function
+### unstake
+#### Context
+#### Function
+### close_staking
+#### Context
+#### Function
