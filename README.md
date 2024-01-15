@@ -708,3 +708,4 @@ impl Details
 ### close_staking
 #### Context
 #### Function
+## Step 7 - Tests
