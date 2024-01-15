@@ -7,10 +7,11 @@ mod constants;
 
 use instructions::*;
 
-declare_id!("4tk9FVqHqxDaBfggxp9PXN577uuVVWBt8sfBDgu1tKRM");
+declare_id!("CzBaFkMbUHmKvmqYh1AxTCwfY6362QYcuUYB7MG1KGGk");
 
 #[program]
-pub mod nft_stake_auth {
+pub mod staking 
+{
     use super::*;
 
     pub fn init_staking(
@@ -39,7 +40,8 @@ pub mod nft_stake_auth {
 }
 
 #[error_code]
-pub enum StakeError {
+pub enum StakeError 
+{
     #[msg("unable to get stake details bump")]
     StakeBumpError,
     #[msg("unable to get token authority bump")]
