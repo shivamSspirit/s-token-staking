@@ -1198,3 +1198,186 @@ pub fn close_staking_handler(ctx: Context<CloseStaking>) -> Result<()>
 ```
 
 ## Step 7 - Tests
+### Dependencies
+The script uses various packages from the `@coral-xyz/anchor`, `@solana/web3.js`, and `@solana/spl-token` libraries. These libraries facilitate interaction with the Solana blockchain and provide helper functions for working with Solana programs and tokens.
+```
+import * as anchor from "@coral-xyz/anchor";
+import { Program, utils, BN } from "@coral-xyz/anchor";
+import { Staking } from "../target/types/staking";
+import {PublicKey} from "@solana/web3.js";
+import * as token from "@solana/spl-token";
+```
+
+### Constants
+`collectionAddress`, `tokenMint`, and `tokenAccount`: Public keys representing the Mint address of the NFT collection, the Mint of the reward token, and the token account for the reward token, respectively.<br>
+`nftMint`, `nftToken`, `nftMetadata`, and `nftEdition`: Public keys representing the NFT Mint, token, metadata, and edition for the staking collection.
+```
+//constants
+const collectionAddress = new PublicKey(""); // Mint Address of the Collection NFT for which the staking to be activated
+const tokenMint = new PublicKey(""); // Mint of the Token to be given as reward
+const tokenAccount = new PublicKey(""); // Token account for the reward token
+
+// NFT of the collection - must be owned by the Signer
+const nftMint = new PublicKey("");
+const nftToken = new PublicKey("");
+const nftMetadata = new PublicKey("")
+const nftEdition = new PublicKey("");
+```
+
+### Anchor Setup
+The script sets up the Anchor provider using `anchor.setProvider(anchor.AnchorProvider.env())` to use the local environment.
+The Staking program is instantiated using `anchor.workspace.Staking as Program<Staking>`.<br>
+Constant values for `programId`, `stakeDetails`, `tokenAuthority`, `nftAuthority` and `nftRecord` are derived using `PublicKey.findProgramAddressSync()`.<br>
+`nftCustody` is obtained using `token.getAssociatedTokenAddressSync()`.
+```
+anchor.setProvider(anchor.AnchorProvider.env());
+
+const program = anchor.workspace.Staking as Program<Staking>;
+const programId = program.programId;
+
+const [stakeDetails] = PublicKey.findProgramAddressSync([
+    utils.bytes.utf8.encode("STAKE"),
+    collectionAddress.toBytes(),
+    program.provider.publicKey.toBytes()
+], programId);
+
+const [tokenAuthority] = PublicKey.findProgramAddressSync([
+    utils.bytes.utf8.encode("TOKEN_AUTHORITY"),
+    stakeDetails.toBytes()
+], programId);
+
+const [nftAuthority] = PublicKey.findProgramAddressSync([
+    utils.bytes.utf8.encode("NFT_AUTHORITY"),
+    stakeDetails.toBytes()
+], programId);
+
+const [nftRecord] = PublicKey.findProgramAddressSync([
+    utils.bytes.utf8.encode("NFT_RECORD"),
+    stakeDetails.toBytes(),
+    nftMint.toBytes()
+], programId);
+
+const nftCustody = token.getAssociatedTokenAddressSync(nftMint, nftAuthority, true);
+```
+
+### Staking Workflow Tests
+The script contains several `it` blocks, each representing a test case for the staking workflow. The tests are as follows:
+#### Initialize Staking
+Calls `initStaking` method. Checks and prints the resulting transaction and staking details.
+```
+  it("initializes staking", async() => {
+    const minimumPeriod = new BN(0);
+    const reward = new BN(100);
+
+    const tx = await program.methods.initStaking(
+      reward,
+      minimumPeriod
+    )
+    .accounts({
+      stakeDetails,
+      tokenMint,
+      tokenAuthority,
+      collectionAddress,
+      nftAuthority
+    })
+    .rpc();
+
+    console.log("tx: ", tx);
+
+    let stakeAccount = await program.account.details.fetch(stakeDetails);
+    console.log(stakeAccount);
+  });
+```
+
+#### Stake NFT
+Calls `stake` method with NFT from the first collection. Checks and prints the resulting transaction, staking details, and NFT record.
+```
+  it("stakes NFT", async() => {
+    const tx = await program.methods.stake()
+    .accounts({
+      stakeDetails,
+      nftRecord,
+      nftMint,
+      nftToken,
+      nftMetadata,
+      nftAuthority,
+      nftEdition,
+      nftCustody,
+    })
+    .rpc()
+
+    console.log("tx: ", tx);
+
+    let stakeAccount = await program.account.details.fetch(stakeDetails);
+    let nftRecordAccount = await program.account.nftRecord.fetch(nftRecord);
+
+    console.log("Stake Details: ", stakeAccount);
+    console.log("NFT Record: ", nftRecordAccount);
+  });
+```
+
+#### Claim Rewards without Unstaking
+Checks the time the NFT was staked. Calls `withdrawReward` method. Checks and prints the resulting transaction and updated staking details.
+```
+  it("claims rewards without unstaking", async() => {
+    let nftRecordAccount = await program.account.nftRecord.fetch(nftRecord);
+    console.log("NFT Staked at: ", nftRecordAccount.stakedAt.toNumber());
+
+    const tx = await program.methods.withdrawReward()
+    .accounts({
+      stakeDetails,
+      nftRecord,
+      rewardMint: tokenMint,
+      rewardReceiveAccount: tokenAccount,
+      tokenAuthority            
+    })
+    .rpc()
+
+    console.log("tx: ", tx);
+
+
+    nftRecordAccount = await program.account.nftRecord.fetch(nftRecord);
+    console.log("NFT Staked at: ", nftRecordAccount.stakedAt.toNumber());
+  });
+```
+
+#### Claim Rewards and Unstake
+Checks the time the NFT was staked. Calls `unstake` method. Checks and prints the resulting transaction.
+```
+  it("claims rewards and unstakes", async() => {
+    let nftRecordAccount = await program.account.nftRecord.fetch(nftRecord);
+    console.log("NFT Staked at: ", nftRecordAccount.stakedAt.toNumber());
+
+    const tx = await program.methods.unstake()
+    .accounts({
+      stakeDetails,
+      nftRecord,
+      rewardMint: tokenMint,
+      rewardReceiveAccount: tokenAccount,
+      tokenAuthority,
+      nftAuthority,
+      nftCustody,
+      nftMint,
+      nftReceiveAccount: nftToken         
+    })
+    .rpc()
+
+    console.log("tx: ", tx);
+  });
+```
+
+#### Close Staking
+Calls `closeStaking` method. Checks and prints the resulting transaction.
+```
+  it("closes staking", async() => {
+    const tx = await program.methods.closeStaking()
+    .accounts({
+      stakeDetails,
+      tokenMint,
+      tokenAuthority       
+    })
+    .rpc()
+
+    console.log("tx: ", tx);
+  });
+```
