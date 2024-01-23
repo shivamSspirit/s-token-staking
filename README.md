@@ -497,7 +497,7 @@ function loadKeypairFromFile(filename: string): Keypair {
 }
 ```
 
-# How to Stake (under Staking)
+# How to Stake NFTs (under Staking)
 ## Step 1 - Project Setup
 Create a new anchor project using `anchor init [project_name]`, paste the following dependencies under Corgo.toml
 ```
@@ -1380,4 +1380,293 @@ Calls `closeStaking` method. Checks and prints the resulting transaction.
 
     console.log("tx: ", tx);
   });
+```
+
+# How to Stake Token (under Token Staking)
+## Step 1 - Project Setup
+Create a new anchor project using `anchor init [project_name]`, paste the following dependencies under Corgo.toml
+```
+[dependencies]
+anchor-lang = {version = "0.29.0" }
+anchor-spl = { version = "0.29.0" }
+ahash = "=0.8.4"
+```
+Then open Anchor.toml and change cluster to `Devnet`
+
+## Step 2 - Structs
+### Pool
+#### Pool Account
+`admin`: A public key (`Pubkey`) representing the administrator of the pool. `start_slot`: A `u64` representing the starting slot of the pool. `end_slot`: A `u64` representing the ending slot of the pool. `token`: A public key (`Pubkey`) representing the associated token for the pool.
+```
+#[account]
+pub struct Pool
+{
+    pub admin: Pubkey,
+    pub start_slot: u64,
+    pub end_slot: u64,
+    pub token: Pubkey
+}
+```
+
+#### Pool Implementation
+`LEN`: A constant `usize` representing the length of the serialized data for the `Pool` account. The length is calculated based on the sizes of the individual fields: 32 bytes for `admin`, 8 bytes for `start_slot`, 8 bytes for `end_slot`, and 32 bytes for `token`. This constant can be useful when working with serialization and deserialization of the account data.
+```
+impl Pool
+{
+    pub const LEN: usize = 32 + 8 + 8 + 32;
+}
+```
+
+### User
+#### User Account
+`amount`: A `u64` representing the amount of some asset held by the user in the associated program. `reward_debt`: A `u64` representing the user's reward debt in the associated program. This could be related to a staking or yield farming scenario, where users earn rewards over time. `deposit_slot`: A `u64` representing the slot when the user made a deposit or interacted with the program. This information might be useful for tracking the user's activity over time.
+```
+#[account]
+pub struct User 
+{
+    pub amount: u64,
+    pub reward_debt: u64,
+    pub deposit_slot: u64
+}
+```
+
+#### User Implementation
+`LEN`: A constant `usize` representing the length of the serialized data for the `User` account. The length is calculated based on the sizes of the individual fields: 8 bytes for `amount`, 8 bytes for `reward_debt`, and 8 bytes for `deposit_slot`. This constant can be useful when working with serialization and deserialization of the account data.
+```
+impl User 
+{
+    pub const LEN: usize = 8 + 8 + 8;
+}
+```
+
+## Step 3 - Contexts and Functions
+### initialize
+#### Context
+This Rust code defines the `Initialize` struct using the `#[derive(Accounts)]` attribute, which is part of the Solana Anchor framework.<br>
+`admin`: A mutable signer account (`Signer`) representing the administrator's account. <br>
+`pool_info`: An initialized account (`init`) for the `Pool` struct, paid for by the `admin` account, with space allocated for the serialized data (8 + Pool::LEN). This account is used to store information about the pool being initialized. <br>
+`staking_token`: A mutable interface account (`InterfaceAccount`) for the `Mint` associated with the staking token. This account is used to interact with the staking token's mint.<br>
+`admin_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the user's wallet, associated with the staking token. This account is used for staking and may receive staking rewards.<br>
+`system_program`: A program account (`Program`) for the Solana system program, used for system-level operations.
+```
+#[derive(Accounts)]
+pub struct Initialize<'info>
+{
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(init, payer = admin, space = 8 + Pool::LEN)]
+    pub pool_info: Account<'info, Pool>,
+    #[account(mut)]
+    pub staking_token: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub admin_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    pub system_program: Program<'info, System>
+}
+```
+
+#### Function
+This function, `initialize`, is the logic for initializing the pool using the provided context (`Context<Initialize>`) and input parameters `start_slot` and `end_slot`. <br>
+Logic - It retrieves a mutable reference to the `pool_info` account from the context. It sets the `admin`, `start_slot`, `end_slot`, and `token` fields of the `pool_info` account based on the provided parameters and accounts from the context. The function returns a `Result<(), ProgramError>`, indicating success or failure.
+```
+pub fn initialize(ctx: Context<Initialize>, start_slot: u64, end_slot: u64) -> Result<()> {
+    let pool_info = &mut ctx.accounts.pool_info;
+
+    pool_info.admin = ctx.accounts.admin.key();
+    pool_info.start_slot = start_slot;
+    pool_info.end_slot = end_slot;
+    pool_info.token = ctx.accounts.staking_token.key();
+
+    Ok(())
+}
+```
+
+### stake
+#### Context
+This Rust code defines a Solana Anchor account structure named `Stake`. This structure is used for staking functionality and contains various accounts necessary for the staking operation. <br>
+`user`: A mutable signer account (`Signer`) representing the user performing the stake.<br>
+`admin`: A mutable account information (`AccountInfo`) for administrative purposes.<br>
+`user_info`: An initialized account (`init`) for the `User` struct, paid for by the `user` account, with space allocated for the serialized data (8 + User::LEN). This account stores information about the user's staking activity.<br>
+`user_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the user's staking wallet (`TokenAccount`). This account is used to hold staked tokens.<br>
+`admin_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the administrator's staking wallet (`TokenAccount`). This account is used for transferring staked tokens.<br>
+`staking_token`: A mutable interface account (`InterfaceAccount`) for the staking token's mint (`Mint`). This account represents the staking token associated with the staking process.<br>
+`token_program`: An interface for the Solana Token Program, used for token-related operations.<br>
+`system_program`: A program account for the Solana System Program, used for system-level operations.
+```
+#[derive(Accounts)]
+pub struct Stake<'info>
+{
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub admin: AccountInfo<'info>,
+    #[account(init, payer = user, space = 8 + User::LEN)]
+    pub user_info: Account<'info, User>,
+    #[account(mut)]
+    pub user_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub admin_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub staking_token: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>
+}
+```
+
+#### Function
+This function, `stake`, is the logic for staking tokens using the provided context (`Context<Stake>`) and the input parameter `amount`. <br>
+Logic - It retrieves a mutable reference to the `user_info` account from the context. It checks if the user has previously staked any amount. If yes, it calculates the reward based on the difference between the current slot and the deposit slot, subtracting the reward debt. Then, it mints the reward tokens to the user's staking wallet. It transfers the specified amount of tokens from the user's staking wallet to the administrator's staking wallet. It updates the user's staking information, including the staked amount, deposit slot, and resets the reward debt. The function returns a `Result<(), ProgramError>`, indicating success or failure.
+```
+pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
+    let user_info = &mut ctx.accounts.user_info;
+    let clock = Clock::get()?;
+
+    if user_info.amount > 0 {
+        let reward = (clock.slot - user_info.deposit_slot) - user_info.reward_debt;
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.staking_token.to_account_info(),
+            to: ctx.accounts.user_staking_wallet.to_account_info(),
+            authority: ctx.accounts.admin.to_account_info(),
+        };
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+        token::mint_to(cpi_ctx, reward)?;
+    }
+
+    let cpi_accounts = Transfer {
+        from: ctx.accounts.user_staking_wallet.to_account_info(),
+        to: ctx.accounts.admin_staking_wallet.to_account_info(),
+        authority: ctx.accounts.user.to_account_info(),
+    };
+
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::transfer(cpi_ctx, amount)?;
+
+    user_info.amount += amount;
+    user_info.deposit_slot = clock.slot;
+    user_info.reward_debt = 0;
+
+    Ok(())
+}
+```
+
+### unstake
+#### Context
+This Rust code defines a Solana Anchor account structure named `Unstake`. This structure is used for unstaking functionality and contains various accounts necessary for the unstaking operation.<br>
+`user`: A mutable account information (`AccountInfo`) representing the user account.<br>
+`admin`: A mutable account information (`AccountInfo`) representing the administrator's account.<br>
+`user_info`: A mutable account (`Account`) for the `User` struct, containing information about the user's staking activity.<br>
+`user_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the user's staking wallet (`TokenAccount`). This account holds the staked tokens.<br>
+`admin_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the administrator's staking wallet (`TokenAccount`). This account is used for transferring staked tokens.<br>
+`staking_token`: A mutable interface account (`InterfaceAccount`) for the staking token's mint (`Mint`). This account represents the staking token associated with the unstaking process.<br>
+`token_program`: An interface for the Solana Token Program, used for token-related operations.
+```
+#[derive(Accounts)]
+pub struct Unstake<'info>
+{
+    #[account(mut)]
+    pub user: AccountInfo<'info>,
+    #[account(mut)]
+    pub admin: AccountInfo<'info>,
+    #[account(mut)]
+    pub user_info: Account<'info, User>,
+    #[account(mut)]
+    pub user_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub admin_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub staking_token: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>
+}
+```
+
+#### Function
+This function, `unstake`, is the logic for unstaking tokens using the provided context (`Context<Unstake>`). <br>
+Logic - It retrieves a mutable reference to the `user_info` account from the context. It calculates the reward based on the difference between the current slot and the deposit slot, subtracting the reward debt. It mints the reward tokens to the user's staking wallet using the Solana Token Program's `mint_to` instruction. It transfers the staked amount of tokens from the administrator's staking wallet to the user's staking wallet using the Solana Token Program's `transfer` instruction. It updates the user's staking information, setting the staked amount, deposit slot, and reward debt to zero. The function returns a `Result<(), ProgramError>`, indicating success or failure.
+```
+pub fn unstake(ctx: Context<Unstake>) -> Result<()>
+{
+    let user_info = &mut ctx.accounts.user_info;
+    let clock = Clock::get()?;
+    let reward = (clock.slot - user_info.deposit_slot) - user_info.reward_debt;
+
+    let cpi_accounts = MintTo {
+        mint: ctx.accounts.staking_token.to_account_info(),
+        to: ctx.accounts.user_staking_wallet.to_account_info(),
+        authority: ctx.accounts.admin.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::mint_to(cpi_ctx, reward)?;
+
+    let cpi_accounts = Transfer {
+        from: ctx.accounts.admin_staking_wallet.to_account_info(),
+        to: ctx.accounts.user_staking_wallet.to_account_info(),
+        authority: ctx.accounts.admin.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::transfer(cpi_ctx, user_info.amount)?;
+
+    user_info.amount = 0;
+    user_info.deposit_slot = 0;
+    user_info.reward_debt = 0;
+
+    Ok(())
+}
+```
+
+### claim_reward
+#### Context
+This Rust code defines a Solana Anchor account structure named `ClaimReward`. This structure is used for claiming rewards and contains various accounts necessary for the claim reward operation.<br>
+`user`: A mutable account information (`AccountInfo`) representing the user account.<br>
+`admin`: A mutable account information (`AccountInfo`) representing the administrator's account.<br>
+`user_info`: A mutable account (`Account`) for the `User` struct, containing information about the user's staking activity.<br>
+`user_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the user's staking wallet (`TokenAccount`). This account holds the staked tokens.<br>
+`admin_staking_wallet`: A mutable interface account (`InterfaceAccount`) for the administrator's staking wallet (`TokenAccount`). This account is used for transferring staked tokens.<br>
+`staking_token`: A mutable interface account (`InterfaceAccount`) for the staking token's mint (`Mint`). This account represents the staking token associated with the reward claim process.<br>
+`token_program`: An interface for the Solana Token Program, used for token-related operations.
+```
+#[derive(Accounts)]
+pub struct ClaimReward<'info>
+{
+    #[account(mut)]
+    pub user: AccountInfo<'info>,
+    #[account(mut)]
+    pub admin: AccountInfo<'info>,
+    #[account(mut)]
+    pub user_info: Account<'info, User>,
+    #[account(mut)]
+    pub user_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub admin_staking_wallet: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub staking_token: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>
+}
+```
+
+#### Function
+This function, `claim_reward`, is the logic for claiming rewards using the provided context (`Context<ClaimReward>`). <br>
+Logic - It retrieves a mutable reference to the `user_info` account from the context. It calculates the reward based on the difference between the current slot and the deposit slot, subtracting the reward debt. It mints the calculated reward tokens to the user's staking wallet using the Solana Token Program's `mint_to` instruction. It updates the user's reward debt, adding the calculated reward to the existing debt. The function returns a `Result<(), ProgramError>`, indicating success or failure.
+```
+pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()>
+{
+    let user_info = &mut ctx.accounts.user_info;
+    let clock = Clock::get()?;
+    let reward = (clock.slot - user_info.deposit_slot) - user_info.reward_debt;
+
+    let cpi_accounts = MintTo {
+        mint: ctx.accounts.staking_token.to_account_info(),
+        to: ctx.accounts.user_staking_wallet.to_account_info(),
+        authority: ctx.accounts.admin.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    token::mint_to(cpi_ctx, reward)?;
+
+    user_info.reward_debt += reward;
+
+    Ok(())
+}
 ```
