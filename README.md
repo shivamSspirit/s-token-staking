@@ -1670,3 +1670,200 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()>
     Ok(())
 }
 ```
+
+## Step 4 - Tests
+### Dependencies
+`@coral-xyz/anchor`: The anchor framework for Solana. <br>
+`@solana/web3.js`: The Solana JavaScript library.<br>
+`@solana/spl-token`: The Solana SPL Token library.<br>
+`chai`: A testing library for JavaScript.
+```
+import { join } from "path";
+import { readFileSync } from "fs";
+import * as anchor from "@coral-xyz/anchor";
+import { BN, Program } from "@coral-xyz/anchor";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, Token } from "@solana/spl-token";
+import { TokenStaking } from "../target/types/token_staking";
+import { assert } from "chai";
+```
+
+### Test Setup
+#### Provider and Program Initialization
+Initializes the Solana provider using `anchor.AnchorProvider.env()`.<br>
+Sets the provider using `anchor.setProvider(provider)`.<br>
+Retrieves the `TokenStaking` program from the `anchor.workspace`.
+```
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  const program = anchor.workspace.TokenStaking as Program<TokenStaking>;
+```
+
+#### Key Pair and Account Initialization
+Loads the administrator's key pair from a Solana wallet file.<br>
+Generates key pairs for the user, pool, and another user.<br>
+Initializes `token`, `adminTokenAccount`, and `userTokenAccount` for managing tokens.
+```
+  const WALLET_PATH = "id.json";
+  const admin = Keypair.fromSecretKey(
+    Buffer.from(JSON.parse(readFileSync(WALLET_PATH, { encoding: "utf-8" })))
+  );
+  const userPK = Keypair.generate();
+  const pool = Keypair.generate();
+  const user = Keypair.generate();
+
+  let token: Token;
+  let adminTokenAccount: PublicKey;
+  let userTokenAccount: PublicKey;
+```
+
+#### Airdrop SOL
+Requests airdrop of 10 SOL to the generated user's public key.
+```
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(
+        userPK.publicKey,
+        10 * LAMPORTS_PER_SOL
+      ),
+      "confirmed"
+    );
+```
+
+#### Token Minting and Transfer
+Creates a new token mint using `Token.createMint`.<br>
+Creates admin and user token accounts using `token.createAccount`.<br>
+Mints 1e10 (10 billion) tokens to the user's token account.
+```
+    token = await Token.createMint(
+      provider.connection,
+      admin,
+      admin.publicKey,
+      null,
+      9,
+      TOKEN_PROGRAM_ID
+    );
+
+    adminTokenAccount = await token.createAccount(admin.publicKey);
+    userTokenAccount = await token.createAccount(userPK.publicKey);
+
+    await token.mintTo(userTokenAccount, admin.publicKey, [admin], 1e10);
+```
+
+### Test Cases
+#### Initialize
+Verifies that the admin token account has a balance of 0. <br>
+Calls the `initialize` method of the program, initializing staking with start and end slots.<br>
+Prints the transaction signature.
+```
+it("Initialize", async () =>
+  {
+    let _adminTokenAccount = await token.getAccountInfo(adminTokenAccount);
+    assert.strictEqual(_adminTokenAccount.amount.toNumber(), 0);
+
+    const tx = await program.methods
+      .initialize(new BN(1), new BN(1e10))
+      .accounts({
+        admin: admin.publicKey,
+        poolInfo: pool.publicKey,
+        stakingToken: token.publicKey,
+        adminStakingWallet: adminTokenAccount,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([admin, pool])
+      .rpc();
+    console.log("Tx Sig", tx);
+  });
+```
+
+#### Stake
+Verifies that the user token account has a balance of 1e10 tokens.<br>
+Calls the `stake` method of the program, staking 1e10 tokens for the user.<br>
+Verifies that the admin token account now has a balance of 1e10 tokens.<br>
+Prints the transaction signature.
+```
+  it("Stake", async () =>
+  {
+    let _userTokenAccount = await token.getAccountInfo(userTokenAccount);
+    assert.strictEqual(_userTokenAccount.amount.toNumber(), 1e10);
+
+    const tx = await program.methods
+      .stake(new BN(1e10))
+      .accounts({
+        user: userPK.publicKey,
+        admin: admin.publicKey,
+        userInfo: user.publicKey,
+        userStakingWallet: userTokenAccount,
+        adminStakingWallet: adminTokenAccount,
+        stakingToken: token.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([userPK, user])
+      .rpc();
+    console.log("Tx Sig", tx);
+
+    let _adminTokenAccount = await token.getAccountInfo(adminTokenAccount);
+    assert.strictEqual(_adminTokenAccount.amount.toNumber(), 1e10);
+  });
+```
+
+#### Claim Reward
+Verifies that the admin token account has a balance of 1e10 tokens.<br>
+Calls the `claimReward` method of the program, claiming rewards for the user.<br>
+Verifies that the user token account now has a balance of 1 token.<br>
+Prints the transaction signature.
+```
+  it("Claim Reward", async () =>
+  {
+    let _adminTokenAccount = await token.getAccountInfo(adminTokenAccount);
+    assert.strictEqual(_adminTokenAccount.amount.toNumber(), 1e10);
+
+    const tx = await program.methods
+      .claimReward()
+      .accounts({
+        user: userPK.publicKey,
+        admin: admin.publicKey,
+        userInfo: user.publicKey,
+        userStakingWallet: userTokenAccount,
+        adminStakingWallet: adminTokenAccount,
+        stakingToken: token.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+    console.log("Tx Sig", tx);
+
+    let _userTokenAccount = await token.getAccountInfo(userTokenAccount);
+    assert.strictEqual(_userTokenAccount.amount.toNumber(), 1);
+  });
+```
+
+#### Unstake
+Verifies that the admin token account has a balance of 1e10 tokens.<br>
+Calls the `unstake` method of the program, unstaking tokens for the user.<br>
+Verifies that the user token account now has a balance of 1e10 + 2 tokens.<br>
+Prints the transaction signature.
+```
+  it("Unstake", async () =>
+  {
+    let _adminTokenAccount = await token.getAccountInfo(adminTokenAccount);
+    assert.strictEqual(_adminTokenAccount.amount.toNumber(), 1e10);
+
+    const tx = await program.methods
+      .unstake()
+      .accounts({
+        user: userPK.publicKey,
+        admin: admin.publicKey,
+        userInfo: user.publicKey,
+        userStakingWallet: userTokenAccount,
+        adminStakingWallet: adminTokenAccount,
+        stakingToken: token.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+    console.log("Tx Sig", tx);
+
+    let _userTokenAccount = await token.getAccountInfo(userTokenAccount);
+    assert.strictEqual(_userTokenAccount.amount.toNumber(), 1e10 + 2);
+  });
+```
