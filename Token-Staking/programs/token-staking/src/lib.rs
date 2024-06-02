@@ -3,7 +3,7 @@ pub mod instructions;
 pub mod state;
 pub use instructions::*;
 
-declare_id!("3uWZFQbWgnS21gQeFXC1J1ZKyGqhAaWs58LwBt7fx1Gv");
+declare_id!("AZUUQXBWrnUpmvSDUEJ9Xof9uUHETZUSRo6xZ8xSxnxB");
 
 #[program]
 pub mod token_staking 
