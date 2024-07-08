@@ -1,17 +1,18 @@
 use anchor_lang::prelude::*;
-use anchor_spl::
-{
-    token::{Mint, Token, transfer, TokenAccount, Transfer}, 
-    metadata::{MasterEditionAccount, MetadataAccount, Metadata}, 
-    associated_token::AssociatedToken
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    metadata::{MasterEditionAccount, Metadata, MetadataAccount},
+    token::{transfer, Mint, Token, TokenAccount, Transfer},
 };
 
-use crate::{state::{Details, NftRecord}, StakeError};
-use crate::constants::{ STAKE, NFT_RECORD, EDITION, METADATA, NFT_AUTHORITY };
+use crate::constants::{EDITION, METADATA, NFT_AUTHORITY, NFT_RECORD, STAKE};
+use crate::{
+    state::{Details, NftRecord},
+    StakeError,
+};
 
 #[derive(Accounts)]
-pub struct Stake<'info> 
-{
+pub struct Stake<'info> {
     #[account(seeds = [STAKE, stake_details.collection.as_ref(), stake_details.creator.as_ref()], bump = stake_details.stake_bump)]
     pub stake_details: Account<'info, Details>,
 
@@ -46,35 +47,31 @@ pub struct Stake<'info>
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>
+    pub system_program: Program<'info, System>,
 }
 
-impl<'info> Stake<'info> 
-{
-    pub fn transfer_nft_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> 
-    {
-        let cpi_accounts = Transfer 
-        {
+impl<'info> Stake<'info> {
+    pub fn transfer_nft_ctx(&self) -> CpiContext<'_, '_, '_, 'info, Transfer<'info>> {
+        let cpi_accounts = Transfer {
             from: self.nft_token.to_account_info(),
             to: self.nft_custody.to_account_info(),
-            authority: self.signer.to_account_info()
+            authority: self.signer.to_account_info(),
         };
-    
+
         let cpi_program = self.token_program.to_account_info();
 
         CpiContext::new(cpi_program, cpi_accounts)
     }
 }
 
-pub fn stake_handler(ctx: Context<Stake>) -> Result<()> 
-{
+pub fn stake_handler(ctx: Context<Stake>) -> Result<()> {
     let staking_status = ctx.accounts.stake_details.is_active;
-    
+
     require_eq!(staking_status, true, StakeError::StakingInactive);
 
     let staker = ctx.accounts.signer.key();
     let nft_mint = ctx.accounts.nft_mint.key();
-    let bump = *ctx.bumps.get("nft_record").ok_or(StakeError::NftBumpError)?;
+    let bump = ctx.bumps.nft_record;
 
     transfer(ctx.accounts.transfer_nft_ctx(), 1)?;
 

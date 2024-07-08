@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, SetAuthority, set_authority, spl_token::instruction::AuthorityType};
+use anchor_spl::token::{
+    set_authority, spl_token::instruction::AuthorityType, Mint, SetAuthority, Token,
+};
 
+use crate::constants::{NFT_AUTHORITY, STAKE, TOKEN_AUTHORITY};
 use crate::{state::Details, StakeError};
-use crate::constants::{ STAKE, TOKEN_AUTHORITY, NFT_AUTHORITY };
 
 #[derive(Accounts)]
-pub struct InitStaking<'info> 
-{
+pub struct InitStaking<'info> {
     #[account(init, payer = creator, seeds = [STAKE, collection_address.key().as_ref(), creator.key().as_ref()], bump, space = Details::LEN)]
     pub stake_details: Account<'info, Details>,
 
@@ -28,54 +29,54 @@ pub struct InitStaking<'info>
     pub nft_authority: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>
+    pub system_program: Program<'info, System>,
 }
 
-impl<'info> InitStaking<'info> 
-{
-    pub fn transfer_auth_ctx(&self) -> CpiContext<'_, '_, '_, 'info, SetAuthority<'info>> 
-    {
-        let cpi_accounts = SetAuthority 
-        {
+impl<'info> InitStaking<'info> {
+    pub fn transfer_auth_ctx(&self) -> CpiContext<'_, '_, '_, 'info, SetAuthority<'info>> {
+        let cpi_accounts = SetAuthority {
             account_or_mint: self.token_mint.to_account_info(),
-            current_authority: self.creator.to_account_info()
+            current_authority: self.creator.to_account_info(),
         };
-    
+
         let cpi_program = self.token_program.to_account_info();
 
         CpiContext::new(cpi_program, cpi_accounts)
     }
 }
 
-pub fn init_staking_handler(ctx: Context<InitStaking>, reward: u64, minimum_period: i64) -> Result<()> 
-{
+pub fn init_staking_handler(
+    ctx: Context<InitStaking>,
+    reward: u64,
+    minimum_period: i64,
+) -> Result<()> {
     require_gte!(minimum_period, 0, StakeError::NegativePeriodValue);
 
     let reward_mint = ctx.accounts.token_mint.key();
     let collection = ctx.accounts.collection_address.key();
     let creator = ctx.accounts.creator.key();
-    let stake_bump = *ctx.bumps.get("stake_details").ok_or(StakeError::StakeBumpError)?;
-    let token_auth_bump = *ctx.bumps.get("token_authority").ok_or(StakeError::TokenAuthBumpError)?;
-    let nft_auth_bump = *ctx.bumps.get("nft_authority").ok_or(StakeError::NftAuthBumpError)?;
+    let stake_bump = ctx.bumps.stake_details;
+    let token_auth_bump = ctx.bumps.token_authority;
+    let nft_auth_bump = ctx.bumps.nft_authority;
     let token_authority = ctx.accounts.token_authority.key();
 
     set_authority(
         ctx.accounts.transfer_auth_ctx(),
         AuthorityType::MintTokens,
-        Some(token_authority)
+        Some(token_authority),
     )?;
 
     let stake_details = &mut ctx.accounts.stake_details;
 
     **stake_details = Details::init(
         creator,
-        reward_mint, 
-        reward, 
+        reward_mint,
+        reward,
         collection,
         minimum_period,
         stake_bump,
         token_auth_bump,
-        nft_auth_bump
+        nft_auth_bump,
     );
 
     Ok(())
